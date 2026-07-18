@@ -283,18 +283,12 @@ def room(room_id):
 @app.route("/admin/notify", methods=["POST"])
 @login_required
 def admin_notify():
-    if session.get("username") not in ["syphir", "admin"]:
+    if session.get("username") not in ["syphir"]:
         abort(403)
-    
     title = request.form.get("title", "Server Notice")
-    message = request.form.get("message", "Server restart in 60 seconds.")
-    
-    socketio.emit('admin_notice', {
-        "title": title,
-        "message": message
-    }, broadcast=True)
-    
-    return "Notification sent to all users."
+    message = request.form.get("message", "Server restart soon.")
+    socketio.emit('admin_notice', {"title": title, "message": message}, broadcast=True)
+    return "Notification sent."
 
 
 # Socket.IO Events
