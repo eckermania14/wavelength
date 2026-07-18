@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Admin Dashboard - Wavelength</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  .admin-panel {
+    max-width: 900px;
+    margin: 40px auto;
+    background: #1a1c24;
+    border-radius: 12px;
+    padding: 24px;
+  }
+  .section {
+    margin-bottom: 32px;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  th, td {
+    padding: 12px;
+    text-align: left;
+    border-bottom: 1px solid #2a2d3a;
+  }
+  .btn-small {
+    padding: 6px 12px;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body class="dashboard-body">
+  <div class="shell">
+    <nav class="rail">
+      <span class="rail-brand-dot"></span>
+      <div class="rail-icons">
+        <a class="rail-icon" href="{{ url_for('index') }}">💬</a>
+      </div>
+      <div class="rail-icons rail-icons-bottom">
+        <a class="rail-icon" href="{{ url_for('logout') }}">⏻</a>
+      </div>
+    </nav>
+
+    <main class="main">
+      <div class="admin-panel">
+        <h1>Admin Dashboard</h1>
+        <p>Welcome, {{ username }} • <a href="{{ url_for('index') }}">Back to Chat</a></p>
+
+        <div class="section">
+          <h2>Global Announcement</h2>
+          <form method="POST" action="{{ url_for('admin_notify') }}">
+            <input type="text" name="title" placeholder="Title (e.g. Server Restart)" style="width:100%; margin-bottom:8px;">
+            <textarea name="message" placeholder="Message to all users" rows="3" style="width:100%;"></textarea>
+            <button type="submit" class="btn">Send to All Users</button>
+          </form>
+        </div>
+
+        <div class="section">
+          <h2>Currently Online ({{ total_online }})</h2>
+          <table>
+            <tr>
+              <th>Username</th>
+              <th>Room</th>
+              <th>Action</th>
+            </tr>
+            {% for user in online_users %}
+            <tr>
+              <td>{{ user.username }}</td>
+              <td>#{{ user.room_name }}</td>
+              <td>
+                <form method="POST" action="{{ url_for('admin_kick') }}" style="display:inline;">
+                  <input type="hidden" name="username" value="{{ user.username }}">
+                  <input type="hidden" name="room_id" value="{{ user.room_id }}">
+                  <button type="submit" class="btn-small" style="background:#e2685f;">Kick</button>
+                </form>
+              </td>
+            </tr>
+            {% endfor %}
+          </table>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
