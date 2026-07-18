@@ -9,50 +9,12 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <style>
-  body { background: #0f1117; }
-  .chat-wrap {
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    background: #1a1c24;
-    border: none;
-    box-shadow: none;
-    margin: 0;
-    border-radius: 0;
-  }
-  .main { padding: 0; overflow: hidden; }
-  .chat-body { flex: 1; display: flex; overflow: hidden; }
-  .messages { background: #14161c; padding: 20px; }
-  .bubble { 
-    background: #2a2d3a; 
-    border-radius: 18px 18px 18px 4px; 
-  }
-  .message.mine .bubble { 
-    background: #ff8f6b; 
-    color: #1a1c24; 
-    border-radius: 18px 18px 4px 18px; 
-  }
-  .chat-header { 
-    background: #1f222e; 
-    border-bottom: 1px solid #2a2d3a; 
-  }
-  .roster { 
-    background: #1a1c24; 
-    border-left: 1px solid #2a2d3a; 
-  }
-
-  /* Mobile */
-  @media (max-width: 768px) {
-    .sidebar { 
-      display: none; 
-      position: fixed; 
-      top: 0; left: 0; bottom: 0; 
-      width: 80%; max-width: 280px; 
-      z-index: 100; 
-      box-shadow: 4px 0 30px rgba(0,0,0,0.6); 
-    }
-    .sidebar.open { display: flex; }
-    .rail { width: 60px; }
+  .typing-indicator {
+    padding: 8px 18px;
+    font-size: 13px;
+    color: #8a8f9e;
+    font-style: italic;
+    min-height: 28px;
   }
 </style>
 </head>
@@ -61,10 +23,10 @@
     <nav class="rail">
       <span class="rail-brand-dot"></span>
       <div class="rail-icons">
-        <a class="rail-icon active" href="{{ url_for('index') }}" title="Chat">💬</a>
+        <a class="rail-icon active" href="{{ url_for('index') }}">💬</a>
       </div>
       <div class="rail-icons rail-icons-bottom">
-        <a class="rail-icon" href="{{ url_for('logout') }}" title="Log out">⏻</a>
+        <a class="rail-icon" href="{{ url_for('logout') }}">⏻</a>
       </div>
     </nav>
 
@@ -81,7 +43,7 @@
 
       <form method="POST" action="{{ url_for('index') }}" class="sidebar-search">
         <input type="text" name="room" maxlength="32" placeholder="Search or create a channel">
-        <button type="submit" aria-label="Go">→</button>
+        <button type="submit">→</button>
       </form>
 
       <div class="sidebar-section-label">ACTIVE NOW</div>
@@ -113,8 +75,8 @@
           </div>
           <div class="header-actions">
             <span class="on-air"><span class="pulse"></span><span id="online-count">{{ online|length }}</span> on air</span>
-            <button type="button" class="icon-btn" id="sidebar-toggle">☰</button>
-            <button type="button" class="icon-btn roster-toggle" id="roster-toggle">👥</button>
+            <button class="icon-btn" id="sidebar-toggle">☰</button>
+            <button class="icon-btn roster-toggle" id="roster-toggle">👥</button>
             <a href="{{ url_for('index') }}" class="leave-link">Channels</a>
             <a href="{{ url_for('logout') }}" class="leave-link">Log out</a>
           </div>
@@ -168,6 +130,7 @@
 
     const socket = io();
     const messagesEl = document.getElementById('messages');
+    const typingIndicator = document.getElementById('typing-indicator');
     const onlineListEl = document.getElementById('online-list');
     const onlineCountEl = document.getElementById('online-count');
     const form = document.getElementById('message-form');
@@ -178,6 +141,8 @@
     const rosterBackdrop = document.getElementById('roster-backdrop');
     const sidebar = document.getElementById('sidebar');
     const sidebarToggle = document.getElementById('sidebar-toggle');
+
+    let typingTimeout;
 
     function colorForName(name) {
       let hash = 0;
@@ -194,17 +159,11 @@
       });
     }
 
-    function clearEmptyState() {
-      const empty = messagesEl.querySelector('.empty-state');
-      if (empty) empty.remove();
-    }
-
     function scrollToBottom() {
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
     function addMessage(entry, mine) {
-      clearEmptyState();
       const div = document.createElement('div');
       div.className = 'message' + (mine ? ' mine' : '');
 
@@ -251,6 +210,18 @@
       scrollToBottom();
     }
 
+    function showTyping(users) {
+      if (users.length === 0) {
+        typingIndicator.innerHTML = '';
+        return;
+      }
+      if (users.length === 1) {
+        typingIndicator.innerHTML = `<em>${users[0]} is typing...</em>`;
+      } else {
+        typingIndicator.innerHTML = `<em>${users.join(', ')} are typing...</em>`;
+      }
+    }
+
     socket.on('connect', () => socket.emit('join', { room_id: roomId }));
     socket.on('message', entry => addMessage(entry, entry.username === username));
     socket.on('system', data => addSystemMessage(data.msg));
@@ -264,6 +235,25 @@
       onlineCountEl.textContent = data.online.length;
     });
 
+    // Typing indicator
+    let isTyping = false;
+    input.addEventListener('input', () => {
+      if (!isTyping) {
+        isTyping = true;
+        socket.emit('typing', { room_id: roomId, isTyping: true });
+      }
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        isTyping = false;
+        socket.emit('typing', { room_id: roomId, isTyping: false });
+      }, 2000);
+    });
+
+    // Listen for typing events from others
+    socket.on('typing', data => {
+      showTyping(data.typingUsers || []);
+    });
+
     form.addEventListener('submit', e => {
       e.preventDefault();
       const text = input.value.trim();
@@ -274,12 +264,8 @@
       charCounterEl.classList.remove('warn');
     });
 
-    input.addEventListener('input', () => {
-      const remaining = 1000 - input.value.length;
-      charCounterEl.textContent = remaining;
-      charCounterEl.classList.toggle('warn', remaining < 100);
-    });
-
+    // Mobile controls
+    if (sidebarToggle) sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
     if (rosterToggle) rosterToggle.addEventListener('click', () => {
       roster.classList.add('open');
       rosterBackdrop.classList.add('show');
@@ -288,8 +274,6 @@
       roster.classList.remove('open');
       rosterBackdrop.classList.remove('show');
     });
-
-    if (sidebarToggle) sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
 
     window.addEventListener('beforeunload', () => socket.emit('leave', { room_id: roomId }));
 
