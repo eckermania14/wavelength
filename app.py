@@ -1,6 +1,6 @@
 """
 Simple chat website (inspired by y99.in) with real accounts.
-Registered users are now saved to users.json for easy persistence.
+Users saved to users.json + admin broadcast support.
 """
 
 import sqlite3
@@ -29,14 +29,15 @@ ROOM_NAME_MAX_LEN = 32
 MAX_HISTORY = 100
 message_history = {}
 room_users = {}
+typing_users = {}  # room_id -> set of typing usernames
 
 FEATURED_ROOMS = [
     ("Lobby", "Say hi and see who's around."),
+    ("Suggestions", "Suggest changes to the site."),  
     ("Random", "Whatever's on your mind."),
     ("Tech", "Gadgets, code, and internet nonsense."),
     ("Music", "New releases and old favorites."),
-    ("Sports", "Games, scores, hot takes."),
-    ("Suggestions", "Leave a suggestion for us to improve!"),
+    ("Sports", "Games, scores, hot takes."),  
 ]
 
 
@@ -56,7 +57,7 @@ def save_users(users_dict):
         json.dump(users_dict, f, indent=2)
 
 
-users_db = load_users()  # username -> {"password_hash": str, "created_at": str}
+users_db = load_users()
 
 
 def get_user_by_username(username):
@@ -278,6 +279,24 @@ def room(room_id):
     )
 
 
+# Admin broadcast
+@app.route("/admin/notify", methods=["POST"])
+@login_required
+def admin_notify():
+    if session.get("username") not in ["syphir", "admin"]:
+        abort(403)
+    
+    title = request.form.get("title", "Server Notice")
+    message = request.form.get("message", "Server restart in 60 seconds.")
+    
+    socketio.emit('admin_notice', {
+        "title": title,
+        "message": message
+    }, broadcast=True)
+    
+    return "Notification sent to all users."
+
+
 # Socket.IO Events
 @socketio.on("join")
 def handle_join(data):
@@ -305,7 +324,7 @@ def handle_leave(data):
     leave_room(str(room_id))
     room_users.get(room_id, set()).discard(username)
 
-    emit("system", {"msg": f"{username} left the room.", "type": "leave"}, room=str(room_id))
+    #emit("system", {"msg": f"{username} left the room.", "type": "leave"}, room=str(room_id))
     emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
 
 
@@ -321,6 +340,25 @@ def handle_message(data):
 
     entry = add_message(room_id, username, text)
     emit("message", entry, room=str(room_id))
+
+
+@socketio.on("typing")
+def handle_typing(data):
+    room_id = data.get("room_id")
+    username = session.get("username")
+    is_typing = data.get("isTyping", False)
+    if room_id is None or not username:
+        return
+    room_id = int(room_id)
+
+    if is_typing:
+        typing_users.setdefault(room_id, set()).add(username)
+    else:
+        typing_users.get(room_id, set()).discard(username)
+
+    emit("typing", {
+        "typingUsers": list(typing_users.get(room_id, set()))
+    }, room=str(room_id))
 
 
 @socketio.on("disconnect")
