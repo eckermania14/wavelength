@@ -290,7 +290,7 @@ def handle_join(data):
     join_room(str(room_id))
     room_users.setdefault(room_id, set()).add(username)
 
-    emit("system", {"msg": f"{username} joined the room.", "type": "join"}, room=str(room_id))
+    #emit("system", {"msg": f"{username} joined the room.", "type": "join"}, room=str(room_id))
     emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
 
 
