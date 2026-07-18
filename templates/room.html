@@ -26,27 +26,38 @@
   .nick[data-username="lowcortisol"] { color: #ffa94d !important; text-shadow: 0 0 8px #ffd700; }
   .nick[data-username="arika_62"] { color: #f046dc !important; text-shadow: 0 0 6px #00ff9d; }
 
-  /* Admin Modal */
-  .modal {
-    position: fixed;
-    top: 0; left: 0; right: 0; bottom: 0;
-    background: rgba(0,0,0,0.9);
-    display: none;
+  /* Voice Chat UI */
+  .voice-bar {
+    background: var(--panel-raised);
+    border-bottom: 1px solid var(--panel-line);
+    padding: 8px 16px;
+    display: flex;
     align-items: center;
-    justify-content: center;
-    z-index: 2000;
+    gap: 12px;
+    font-size: 13px;
   }
-  .modal-content {
-    background: #1f222e;
-    padding: 28px 36px;
-    border-radius: 12px;
-    max-width: 400px;
-    text-align: center;
-    border: 2px solid #ff8f6b;
+  .voice-btn {
+    padding: 6px 14px;
+    border-radius: 999px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s;
   }
-  .modal-content h2 { 
-    margin: 0 0 16px 0; 
-    color: #ff8f6b; 
+  .voice-btn.mic-on {
+    background: #6fcf97;
+    color: #14161c;
+  }
+  .voice-users {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .voice-user {
+    background: rgba(111, 207, 151, 0.2);
+    color: var(--signal);
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
   }
 </style>
 </head>
@@ -109,6 +120,13 @@
             <a href="{{ url_for('logout') }}" class="leave-link">Log out</a>
           </div>
         </header>
+
+        <!-- Voice Bar -->
+        <div class="voice-bar" id="voice-bar">
+          <button id="toggle-voice" class="voice-btn">🎤 Join Voice</button>
+          <div class="voice-users" id="voice-users"></div>
+        </div>
+
         <div class="chat-body">
           <div id="messages" class="messages">
             {% if not history %}
@@ -176,6 +194,12 @@
     const rosterBackdrop = document.getElementById('roster-backdrop');
     const sidebar = document.getElementById('sidebar');
     const sidebarToggle = document.getElementById('sidebar-toggle');
+
+    // Voice Chat Variables
+    let localStream = null;
+    let peers = {}; // username -> RTCPeerConnection
+    let isInVoice = false;
+    const voiceUsers = new Set();
 
     function colorForName(name) {
       const specialColors = {
@@ -254,6 +278,119 @@
       document.getElementById('admin-modal').style.display = 'none';
     }
 
+    // Voice Chat Functions
+    async function toggleVoice() {
+      const btn = document.getElementById('toggle-voice');
+      if (!isInVoice) {
+        try {
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          isInVoice = true;
+          btn.textContent = '🎤 Leave Voice';
+          btn.classList.add('mic-on');
+          socket.emit('voice_join', { room_id: roomId });
+          addSystemMessage('You joined voice chat.');
+        } catch (err) {
+          console.error(err);
+          addSystemMessage('Failed to access microphone.');
+        }
+      } else {
+        if (localStream) {
+          localStream.getTracks().forEach(track => track.stop());
+        }
+        Object.values(peers).forEach(pc => pc.close());
+        peers = {};
+        isInVoice = false;
+        btn.textContent = '🎤 Join Voice';
+        btn.classList.remove('mic-on');
+        addSystemMessage('You left voice chat.');
+      }
+    }
+
+    function createPeerConnection(targetUsername) {
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      });
+
+      if (localStream) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('voice_ice', {
+            room_id: roomId,
+            target: targetUsername,
+            candidate: event.candidate
+          });
+        }
+      };
+
+      pc.ontrack = (event) => {
+        const audio = document.createElement('audio');
+        audio.srcObject = event.streams[0];
+        audio.autoplay = true;
+        document.body.appendChild(audio);
+      };
+
+      peers[targetUsername] = pc;
+      return pc;
+    }
+
+    // Socket listeners for voice
+    socket.on('voice_offer', async (data) => {
+      const pc = createPeerConnection(data.from);
+      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit('voice_answer', {
+        room_id: roomId,
+        target: data.from,
+        answer: answer
+      });
+    });
+
+    socket.on('voice_answer', async (data) => {
+      const pc = peers[data.from];
+      if (pc) {
+        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
+      }
+    });
+
+    socket.on('voice_ice', (data) => {
+      const pc = peers[data.from];
+      if (pc) {
+        pc.addIceCandidate(new RTCIceCandidate(data.candidate));
+      }
+    });
+
+    socket.on('voice_user_joined', (data) => {
+      if (isInVoice && data.username !== username) {
+        const pc = createPeerConnection(data.username);
+        pc.createOffer().then(offer => {
+          pc.setLocalDescription(offer);
+          socket.emit('voice_offer', {
+            room_id: roomId,
+            target: data.username,
+            offer: offer
+          });
+        });
+      }
+      voiceUsers.add(data.username);
+      updateVoiceUsersUI();
+    });
+
+    function updateVoiceUsersUI() {
+      const container = document.getElementById('voice-users');
+      container.innerHTML = '';
+      voiceUsers.forEach(user => {
+        const el = document.createElement('span');
+        el.className = 'voice-user';
+        el.textContent = user;
+        container.appendChild(el);
+      });
+    }
+
+    // Existing socket events
     socket.on('connect', () => socket.emit('join', { room_id: roomId }));
     socket.on('message', entry => addMessage(entry, entry.username === username));
     socket.on('system', data => addSystemMessage(data.msg));
@@ -297,7 +434,13 @@
 
     if (sidebarToggle) sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
 
-    window.addEventListener('beforeunload', () => socket.emit('leave', { room_id: roomId }));
+    // Voice button
+    document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
+
+    window.addEventListener('beforeunload', () => {
+      socket.emit('leave', { room_id: roomId });
+      if (localStream) localStream.getTracks().forEach(track => track.stop());
+    });
 
     paintAvatars();
     scrollToBottom();
