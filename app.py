@@ -279,7 +279,7 @@ def room(room_id):
     )
 
 
-# Admin dashboard
+# Admin Dashboard
 @app.route("/admin")
 @login_required
 def admin_dashboard():
@@ -312,7 +312,7 @@ def admin_notify():
         abort(403)
     
     title = request.form.get("title", "Server Notice")
-    message = request.form.get("message", "Maintenance in progress.")
+    message = request.form.get("message", "Server maintenance in progress.")
     
     socketio.emit('admin_notice', {
         "title": title,
