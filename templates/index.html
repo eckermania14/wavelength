@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Wavelength</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="dashboard-body">
+  <div class="shell">
+    <nav class="rail">
+      <span class="rail-brand-dot"></span>
+      <div class="rail-icons">
+        <span class="rail-icon active" title="Chat">💬</span>
+      </div>
+      <div class="rail-icons rail-icons-bottom">
+        <a class="rail-icon" href="{{ url_for('logout') }}" title="Log out">⏻</a>
+      </div>
+    </nav>
+
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="me">
+          <span class="avatar avatar-static" id="me-avatar">{{ username[0]|upper }}</span>
+          <div>
+            <div class="me-name">{{ username }}</div>
+            <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
+          </div>
+        </div>
+      </div>
+
+      <form method="POST" action="{{ url_for('index') }}" class="sidebar-search">
+        <input type="text" name="room" maxlength="32" placeholder="Search or create a channel">
+        <button type="submit" aria-label="Go">→</button>
+      </form>
+
+      <div class="sidebar-section-label">Active now</div>
+      <div class="active-list-wrap">
+        {% if active_rooms %}
+          <ul class="active-list">
+          {% for r in active_rooms %}
+            <li>
+              <a href="{{ url_for('room', room_id=r.id) }}">
+                <span class="on-air live small"><span class="pulse"></span></span>
+                <span class="active-room-name">{{ r.name }}</span>
+                <span class="active-room-count">{{ r.online_count }}</span>
+              </a>
+            </li>
+          {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note">No one's on air yet — open a channel below to get things started.</p>
+        {% endif %}
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="main-header">
+        <h1>Tune in, {{ username }}</h1>
+        <p class="tagline">Pick a channel below, or search for one and hit enter to create it.</p>
+      </header>
+
+      <section class="rooms-section">
+        <div class="section-title">Featured channels</div>
+        <div class="rooms-grid">
+          {% for r in featured_rooms %}
+            <a class="room-card" href="{{ url_for('room', room_id=r.id) }}">
+              <div class="room-card-top">
+                <span class="room-card-name">#{{ r.name }}</span>
+                <span class="on-air live small"><span class="pulse"></span></span>
+                <span class="room-card-count">{{ r.online_count }}</span>
+              </div>
+              <p class="room-card-desc">{{ r.description }}</p>
+              <span class="btn btn-small room-card-open">Open</span>
+            </a>
+          {% endfor %}
+        </div>
+      </section>
+    </main>
+  </div>
+</body>
+</html>

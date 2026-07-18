@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ room.name }} - Wavelength</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  .chat-wrap {
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    border: none;
+    box-shadow: none;
+    margin: 0;
+    border-radius: 0;
+  }
+  .main {
+    padding: 0;
+    overflow: hidden;
+  }
+  .chat-body {
+    flex: 1;
+    display: flex;
+    overflow: hidden;
+  }
+</style>
+</head>
+<body class="dashboard-body">
+  <div class="shell">
+    <nav class="rail">
+      <span class="rail-brand-dot"></span>
+      <div class="rail-icons">
+        <a class="rail-icon active" href="{{ url_for('index') }}" title="Chat">💬</a>
+      </div>
+      <div class="rail-icons rail-icons-bottom">
+        <a class="rail-icon" href="{{ url_for('logout') }}" title="Log out">⏻</a>
+      </div>
+    </nav>
+
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <div class="me">
+          <span class="avatar avatar-static" id="me-avatar">{{ username[0]|upper }}</span>
+          <div>
+            <div class="me-name">{{ username }}</div>
+            <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
+          </div>
+        </div>
+      </div>
+
+      <form method="POST" action="{{ url_for('index') }}" class="sidebar-search">
+        <input type="text" name="room" maxlength="32" placeholder="Search or create a channel">
+        <button type="submit" aria-label="Go">→</button>
+      </form>
+
+      <div class="sidebar-section-label">Active now</div>
+      <div class="active-list-wrap">
+        {% if active_rooms %}
+          <ul class="active-list">
+          {% for r in active_rooms %}
+            <li>
+              <a href="{{ url_for('room', room_id=r.id) }}">
+                <span class="on-air live small"><span class="pulse"></span></span>
+                <span class="active-room-name">{{ r.name }}</span>
+                <span class="active-room-count">{{ r.online_count }}</span>
+              </a>
+            </li>
+          {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note">No one's on air yet — open a channel below to get things started.</p>
+        {% endif %}
+      </div>
+    </aside>
+
+    <main class="main">
+      <div class="chat-wrap">
+        <header class="chat-header">
+          <div>
+            <span class="channel-name">#{{ room.name }}</span>
+            <span class="you">you are {{ username }}</span>
+          </div>
+          <div class="header-actions">
+            <span class="on-air"><span class="pulse"></span><span id="online-count">{{ online|length }}</span>&nbsp;on&nbsp;air</span>
+            <button type="button" class="icon-btn roster-toggle" id="roster-toggle" aria-label="Show who's on air">☰</button>
+            <a href="{{ url_for('index') }}" class="leave-link">Channels</a>
+            <a href="{{ url_for('logout') }}" class="leave-link">Log out</a>
+          </div>
+        </header>
+
+        <div class="chat-body">
+          <div id="messages" class="messages">
+            {% if not history %}
+              <div class="empty-state">
+                <span class="empty-icon">📻</span>
+                <p>Nobody's said anything yet. Be the first voice on #{{ room.name }}.</p>
+              </div>
+            {% endif %}
+            {% for m in history %}
+              <div class="message {% if m.username == username %}mine{% endif %}">
+                <span class="avatar" data-username="{{ m.username }}">{{ m.username[0]|upper }}</span>
+                <div class="bubble-col">
+                  <span class="meta"><span class="nick">{{ m.username }}</span><span class="time">{{ m.time }}</span></span>
+                  <span class="bubble">{{ m.message }}</span>
+                </div>
+              </div>
+            {% endfor %}
+          </div>
+
+          <div class="roster-backdrop" id="roster-backdrop"></div>
+          <aside class="roster" id="roster">
+            <div class="roster-title">On air</div>
+            <ul id="online-list">
+              {% for u in online %}
+                <li>{{ u }}</li>
+              {% endfor %}
+            </ul>
+          </aside>
+        </div>
+
+        <div class="typing-indicator" id="typing-indicator"></div>
+
+        <form id="message-form" class="message-form">
+          <input type="text" id="message-input" maxlength="1000" placeholder="Say something..." autocomplete="off" autofocus>
+          <span class="char-counter" id="char-counter">1000</span>
+          <button type="submit">Send</button>
+        </form>
+      </div>
+    </main>
+  </div>
+
+  <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+  <script>
+    const roomId = {{ room.id|tojson }};
+    const roomName = {{ room.name|tojson }};
+    const username = {{ username|tojson }};
+
+    const socket = io();
+    const messagesEl = document.getElementById('messages');
+    const onlineListEl = document.getElementById('online-list');
+    const onlineCountEl = document.getElementById('online-count');
+    const form = document.getElementById('message-form');
+    const input = document.getElementById('message-input');
+    const charCounterEl = document.getElementById('char-counter');
+    const rosterToggle = document.getElementById('roster-toggle');
+    const roster = document.getElementById('roster');
+    const rosterBackdrop = document.getElementById('roster-backdrop');
+
+    // Deterministic pastel colour per username
+    function colorForName(name) {
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const hue = Math.abs(hash) % 360;
+      return `hsl(${hue}, 55%, 62%)`;
+    }
+
+    function paintAvatars() {
+      document.querySelectorAll('.avatar[data-username]').forEach(function (el) {
+        el.style.background = colorForName(el.dataset.username);
+      });
+    }
+
+    function clearEmptyState() {
+      const empty = messagesEl.querySelector('.empty-state');
+      if (empty) empty.remove();
+    }
+
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function addMessage(entry, mine) {
+      clearEmptyState();
+      const div = document.createElement('div');
+      div.className = 'message' + (mine ? ' mine' : '');
+
+      const avatar = document.createElement('span');
+      avatar.className = 'avatar';
+      avatar.textContent = entry.username.charAt(0).toUpperCase();
+      avatar.style.background = colorForName(entry.username);
+
+      const col = document.createElement('div');
+      col.className = 'bubble-col';
+
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+
+      const nick = document.createElement('span');
+      nick.className = 'nick';
+      nick.textContent = entry.username;
+
+      const time = document.createElement('span');
+      time.className = 'time';
+      time.textContent = entry.time;
+
+      meta.appendChild(nick);
+      meta.appendChild(time);
+
+      const bubble = document.createElement('span');
+      bubble.className = 'bubble';
+      bubble.textContent = entry.message;
+
+      col.appendChild(meta);
+      col.appendChild(bubble);
+
+      div.appendChild(avatar);
+      div.appendChild(col);
+      messagesEl.appendChild(div);
+      scrollToBottom();
+    }
+
+    function addSystemMessage(text) {
+      const div = document.createElement('div');
+      div.className = 'system';
+      div.textContent = text;
+      messagesEl.appendChild(div);
+      scrollToBottom();
+    }
+
+    socket.on('connect', function () {
+      socket.emit('join', { room_id: roomId });
+    });
+
+    socket.on('message', function (entry) {
+      addMessage(entry, entry.username === username);
+    });
+
+    socket.on('system', function (data) {
+      addSystemMessage(data.msg);
+    });
+
+    socket.on('roster', function (data) {
+      onlineListEl.innerHTML = '';
+      data.online.forEach(function (user) {
+        const li = document.createElement('li');
+        li.textContent = user;
+        onlineListEl.appendChild(li);
+      });
+      onlineCountEl.textContent = data.online.length;
+    });
+
+    form.addEventListener('submit', function (e) {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+      socket.emit('message', { room_id: roomId, message: text });
+      input.value = '';
+      charCounterEl.textContent = '1000';
+      charCounterEl.classList.remove('warn');
+    });
+
+    input.addEventListener('input', function () {
+      const remaining = 1000 - input.value.length;
+      charCounterEl.textContent = remaining;
+      charCounterEl.classList.toggle('warn', remaining < 100);
+    });
+
+    if (rosterToggle) {
+      rosterToggle.addEventListener('click', function () {
+        roster.classList.add('open');
+        rosterBackdrop.classList.add('show');
+      });
+    }
+    if (rosterBackdrop) {
+      rosterBackdrop.addEventListener('click', function () {
+        roster.classList.remove('open');
+        rosterBackdrop.classList.remove('show');
+      });
+    }
+
+    window.addEventListener('beforeunload', function () {
+      socket.emit('leave', { room_id: roomId });
+    });
+
+    paintAvatars();
+    scrollToBottom();
+  </script>
+</body>
+</html>
