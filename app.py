@@ -13,7 +13,9 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = secrets.token_hex(16)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
+
+# Use default async_mode (threading) for Railway compatibility
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode=None)
 
 DB_PATH = "chat.db"
 
@@ -23,8 +25,8 @@ ROOM_NAME_MAX_LEN = 32
 
 # In-memory chat state
 MAX_HISTORY = 100
-message_history = {}   # room_id -> list of messages
-room_users = {}        # room_id -> set of usernames
+message_history = {}
+room_users = {}
 
 FEATURED_ROOMS = [
     ("Lobby", "Say hi and see who's around."),
@@ -35,7 +37,6 @@ FEATURED_ROOMS = [
 ]
 
 
-# Database helpers
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -176,7 +177,7 @@ def add_message(room_id, username, text):
     return entry
 
 
-# Routes
+# === Routes ===
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -316,10 +317,9 @@ def handle_disconnect():
     pass
 
 
-# Initialize DB
+# Initialize
 init_db()
 
-# Run the app
+# Run
 if __name__ == "__main__":
-    # Local development
     socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
