@@ -36,6 +36,7 @@ FEATURED_ROOMS = [
     ("Tech", "Gadgets, code, and internet nonsense."),
     ("Music", "New releases and old favorites."),
     ("Sports", "Games, scores, hot takes."),
+    ("Suggestions", "Leave a suggestion for us to improve!"),
 ]
 
 
