@@ -35,9 +35,6 @@ PASSWORD_MIN_LEN = 6
 ROOM_NAME_MAX_LEN = 32
 
 # --- In-memory chat state -----------------------------------------------
-# Messages and "who's online" are ephemeral, like a guest chat room —
-# only accounts and the room directory itself are persisted.
-
 MAX_HISTORY = 100
 message_history = {}   # room_id (int) -> list of {username, message, time}
 room_users = {}         # room_id (int) -> set of usernames currently online
@@ -92,7 +89,7 @@ def init_db():
         """
     )
     existing = {
-        row["name"].lower()
+        row[0].lower()
         for row in db.execute("SELECT name FROM rooms").fetchall()
     }
     for name, description in FEATURED_ROOMS:
@@ -134,8 +131,6 @@ def get_room_by_name(name):
 
 
 def get_or_create_room(name):
-    """Look up a room by name (case-insensitive), creating it if needed.
-    Always returns a room row with a numeric id."""
     room = get_room_by_name(name)
     if room:
         return room
@@ -158,7 +153,6 @@ def list_featured_rooms():
 
 
 def list_active_rooms():
-    """Rooms that currently have at least one person online."""
     db = get_db()
     active_ids = [rid for rid, users in room_users.items() if users]
     if not active_ids:
@@ -177,8 +171,6 @@ def with_online_count(room_row):
     room["online_count"] = len(room_users.get(room["id"], set()))
     return room
 
-
-# --- Auth helpers -----------------------------------------------------------
 
 def login_required(view):
     @wraps(view)
@@ -201,8 +193,6 @@ def add_message(room_id, username, text):
         del history[: len(history) - MAX_HISTORY]
     return entry
 
-
-# --- Auth routes ------------------------------------------------------------
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
@@ -257,8 +247,6 @@ def logout():
     return redirect(url_for("login"))
 
 
-# --- Chat routes --------------------------------------------------------
-
 @app.route("/", methods=["GET", "POST"])
 @login_required
 def index():
@@ -291,11 +279,9 @@ def room(room_id):
         username=username,
         history=history,
         online=online,
+        active_rooms=list_active_rooms(),  # for sidebar
     )
 
-
-# --- Socket.IO events -------------------------------------------------------
-# Socket.IO rooms are keyed by the string form of the numeric room id.
 
 @socketio.on("join")
 def handle_join(data):
@@ -359,8 +345,6 @@ def handle_message(data):
 
 @socketio.on("disconnect")
 def handle_disconnect():
-    # Best-effort cleanup; the client also sends an explicit "leave" event
-    # when the page unloads, so this mostly covers dropped connections.
     pass
 
 
