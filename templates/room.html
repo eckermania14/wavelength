@@ -196,11 +196,12 @@
     const username = {{ username|tojson }};
     const socket = io();
 
-    // Core Elements
+    // DOM Elements
     const messagesEl = document.getElementById('messages');
     const form = document.getElementById('message-form');
     const input = document.getElementById('message-input');
     const charCounterEl = document.getElementById('char-counter');
+    const onlineCountEl = document.getElementById('online-count');
 
     let localStream = null;
     let peers = {};
@@ -249,7 +250,7 @@
       scrollToBottom();
     }
 
-    // FIXED MESSAGE FORM
+    // FIXED FORM SUBMIT
     form.addEventListener('submit', function(e) {
       e.preventDefault();
       const text = input.value.trim();
@@ -260,21 +261,19 @@
       charCounterEl.textContent = '1000';
     });
 
-    // Voice Chat Functions
+    // Voice Chat
     async function toggleVoice() {
       const btn = document.getElementById('toggle-voice');
       if (!isInVoice) {
         try {
-          localStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          });
+          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
           isInVoice = true;
           btn.textContent = '🎤 Leave Voice';
           btn.classList.add('mic-on');
           socket.emit('voice_join', { room_id: roomId });
-          logDebug('✅ Joined voice');
+          logDebug('Joined voice chat');
         } catch (err) {
-          logDebug('❌ Mic error: ' + err.message);
+          logDebug('Mic error: ' + err.message);
         }
       } else {
         if (localStream) localStream.getTracks().forEach(track => track.stop());
@@ -282,30 +281,24 @@
         peers = {};
         isInVoice = false;
         btn.textContent = '🎤 Join Voice';
-        btn.classList.remove('mic-on', 'speaking');
-        logDebug('Left voice');
+        btn.classList.remove('mic-on');
+        logDebug('Left voice chat');
       }
     }
 
     // Socket Events
     socket.on('connect', () => socket.emit('join', { room_id: roomId }));
     socket.on('message', entry => addMessage(entry, entry.username === username));
-    socket.on('voice_user_joined', (data) => { logDebug(`New voice user: ${data.username}`); });
+    socket.on('voice_user_joined', (data) => logDebug(`New voice user: ${data.username}`));
 
-    // Debug Toggle
+    document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
     document.getElementById('debug-toggle').addEventListener('click', () => {
       const panel = document.getElementById('debug-panel');
       panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     });
 
-    document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
-
-    window.addEventListener('beforeunload', () => {
-      if (localStream) localStream.getTracks().forEach(track => track.stop());
-    });
-
     scrollToBottom();
-    logDebug('Room loaded - Ready');
+    logDebug('Room loaded');
   </script>
 </body>
 </html>
