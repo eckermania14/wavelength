@@ -1,18 +1,5 @@
 """
 Simple chat website (inspired by y99.in) with real accounts.
-
-Users must register with a username (5+ characters) and a password
-before they can chat. Accounts and rooms are stored in a local SQLite
-database (chat.db, created automatically on first run); chat messages
-themselves stay in memory only, like a guest chat room.
-
-Rooms are stored as rows with a numeric primary key. A room is always
-addressed by that numeric id in the URL: /r/<room_id>.
-
-Run with:
-    python app.py
-
-Then open http://localhost:5000 in your browser.
 """
 
 import sqlite3
@@ -26,20 +13,19 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = secrets.token_hex(16)
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 DB_PATH = "chat.db"
 
-USERNAME_MIN_LEN = 5   # usernames must be LONGER than 4 characters
+USERNAME_MIN_LEN = 5
 PASSWORD_MIN_LEN = 6
 ROOM_NAME_MAX_LEN = 32
 
-# --- In-memory chat state -----------------------------------------------
+# In-memory chat state
 MAX_HISTORY = 100
-message_history = {}   # room_id (int) -> list of {username, message, time}
-room_users = {}         # room_id (int) -> set of usernames currently online
+message_history = {}   # room_id -> list of messages
+room_users = {}        # room_id -> set of usernames
 
-# Seeded once on first run. (name, description)
 FEATURED_ROOMS = [
     ("Lobby", "Say hi and see who's around."),
     ("Random", "Whatever's on your mind."),
@@ -49,8 +35,7 @@ FEATURED_ROOMS = [
 ]
 
 
-# --- Database helpers -----------------------------------------------------
-
+# Database helpers
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -104,9 +89,7 @@ def init_db():
 
 def get_user_by_username(username):
     db = get_db()
-    return db.execute(
-        "SELECT * FROM users WHERE username = ?", (username,)
-    ).fetchone()
+    return db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
 
 
 def create_user(username, password):
@@ -134,7 +117,6 @@ def get_or_create_room(name):
     room = get_room_by_name(name)
     if room:
         return room
-
     db = get_db()
     db.execute(
         "INSERT INTO rooms (name, description, featured, created_at) VALUES (?, '', 0, ?)",
@@ -194,6 +176,7 @@ def add_message(room_id, username, text):
     return entry
 
 
+# Routes
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -279,10 +262,11 @@ def room(room_id):
         username=username,
         history=history,
         online=online,
-        active_rooms=list_active_rooms(),  # for sidebar
+        active_rooms=list_active_rooms(),
     )
 
 
+# Socket.IO Events
 @socketio.on("join")
 def handle_join(data):
     room_id = data.get("room_id")
@@ -294,16 +278,8 @@ def handle_join(data):
     join_room(str(room_id))
     room_users.setdefault(room_id, set()).add(username)
 
-    emit(
-        "system",
-        {"msg": f"{username} joined the room.", "type": "join"},
-        room=str(room_id),
-    )
-    emit(
-        "roster",
-        {"online": sorted(room_users.get(room_id, set()))},
-        room=str(room_id),
-    )
+    emit("system", {"msg": f"{username} joined the room.", "type": "join"}, room=str(room_id))
+    emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
 
 
 @socketio.on("leave")
@@ -317,16 +293,8 @@ def handle_leave(data):
     leave_room(str(room_id))
     room_users.get(room_id, set()).discard(username)
 
-    emit(
-        "system",
-        {"msg": f"{username} left the room.", "type": "leave"},
-        room=str(room_id),
-    )
-    emit(
-        "roster",
-        {"online": sorted(room_users.get(room_id, set()))},
-        room=str(room_id),
-    )
+    emit("system", {"msg": f"{username} left the room.", "type": "leave"}, room=str(room_id))
+    emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
 
 
 @socketio.on("message")
@@ -348,7 +316,10 @@ def handle_disconnect():
     pass
 
 
+# Initialize DB
 init_db()
 
+# Run the app
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=5000, debug=True)
+    # Local development
+    socketio.run(app, host="0.0.0.0", port=5000, debug=True, allow_unsafe_werkzeug=True)
