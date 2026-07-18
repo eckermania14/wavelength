@@ -17,6 +17,7 @@
     box-shadow: none;
     margin: 0;
     border-radius: 0;
+    background: #1a1c24;
   }
   .main {
     padding: 0;
@@ -27,41 +28,20 @@
     display: flex;
     overflow: hidden;
   }
-
-  /* Mobile Improvements */
-  @media (max-width: 768px) {
-    .sidebar {
-      display: none;
-      position: fixed;
-      top: 0;
-      left: 0;
-      bottom: 0;
-      width: 80%;
-      max-width: 280px;
-      z-index: 100;
-      box-shadow: 4px 0 30px rgba(0,0,0,0.6);
-    }
-    .sidebar.open {
-      display: flex;
-    }
-    .rail {
-      width: 60px;
-    }
-    .chat-header {
-      padding: 12px 16px;
-    }
-    .message {
-      max-width: 88%;
-    }
-    .message-form input {
-      font-size: 16px; /* Prevents zoom on iOS */
-    }
+  .messages {
+    background: #14161c;
+  }
+  .bubble {
+    background: #2a2d3a;
+  }
+  .message.mine .bubble {
+    background: #ff8f6b;
+    color: #1a1c24;
   }
 </style>
 </head>
 <body class="dashboard-body">
   <div class="shell">
-    <!-- Rail Navigation -->
     <nav class="rail">
       <span class="rail-brand-dot"></span>
       <div class="rail-icons">
@@ -72,11 +52,10 @@
       </div>
     </nav>
 
-    <!-- Sidebar -->
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="me">
-          <span class="avatar avatar-static" id="me-avatar">{{ username[0]|upper }}</span>
+          <span class="avatar avatar-static">{{ username[0]|upper }}</span>
           <div>
             <div class="me-name">{{ username }}</div>
             <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
@@ -104,12 +83,11 @@
           {% endfor %}
           </ul>
         {% else %}
-          <p class="empty-note">No one's on air yet — open a channel below.</p>
+          <p class="empty-note">No one's on air yet.</p>
         {% endif %}
       </div>
     </aside>
 
-    <!-- Main Chat Area -->
     <main class="main">
       <div class="chat-wrap">
         <header class="chat-header">
@@ -118,9 +96,9 @@
             <span class="you">you are {{ username }}</span>
           </div>
           <div class="header-actions">
-            <span class="on-air"><span class="pulse"></span><span id="online-count">{{ online|length }}</span>&nbsp;on&nbsp;air</span>
-            <button type="button" class="icon-btn" id="sidebar-toggle" aria-label="Open sidebar">☰</button>
-            <button type="button" class="icon-btn roster-toggle" id="roster-toggle" aria-label="Show roster">👥</button>
+            <span class="on-air"><span class="pulse"></span><span id="online-count">{{ online|length }}</span> on air</span>
+            <button type="button" class="icon-btn" id="sidebar-toggle">☰</button>
+            <button type="button" class="icon-btn roster-toggle" id="roster-toggle">👥</button>
             <a href="{{ url_for('index') }}" class="leave-link">Channels</a>
             <a href="{{ url_for('logout') }}" class="leave-link">Log out</a>
           </div>
@@ -147,7 +125,7 @@
 
           <div class="roster-backdrop" id="roster-backdrop"></div>
           <aside class="roster" id="roster">
-            <div class="roster-title">On air</div>
+            <div class="roster-title">ON AIR</div>
             <ul id="online-list">
               {% for u in online %}
                 <li>{{ u }}</li>
@@ -170,7 +148,6 @@
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script>
     const roomId = {{ room.id|tojson }};
-    const roomName = {{ room.name|tojson }};
     const username = {{ username|tojson }};
 
     const socket = io();
@@ -196,7 +173,7 @@
     }
 
     function paintAvatars() {
-      document.querySelectorAll('.avatar[data-username]').forEach(function (el) {
+      document.querySelectorAll('.avatar[data-username]').forEach(el => {
         el.style.background = colorForName(el.dataset.username);
       });
     }
@@ -258,21 +235,12 @@
       scrollToBottom();
     }
 
-    socket.on('connect', function () {
-      socket.emit('join', { room_id: roomId });
-    });
-
-    socket.on('message', function (entry) {
-      addMessage(entry, entry.username === username);
-    });
-
-    socket.on('system', function (data) {
-      addSystemMessage(data.msg);
-    });
-
-    socket.on('roster', function (data) {
+    socket.on('connect', () => socket.emit('join', { room_id: roomId }));
+    socket.on('message', entry => addMessage(entry, entry.username === username));
+    socket.on('system', data => addSystemMessage(data.msg));
+    socket.on('roster', data => {
       onlineListEl.innerHTML = '';
-      data.online.forEach(function (user) {
+      data.online.forEach(user => {
         const li = document.createElement('li');
         li.textContent = user;
         onlineListEl.appendChild(li);
@@ -280,7 +248,7 @@
       onlineCountEl.textContent = data.online.length;
     });
 
-    form.addEventListener('submit', function (e) {
+    form.addEventListener('submit', e => {
       e.preventDefault();
       const text = input.value.trim();
       if (!text) return;
@@ -290,36 +258,24 @@
       charCounterEl.classList.remove('warn');
     });
 
-    input.addEventListener('input', function () {
+    input.addEventListener('input', () => {
       const remaining = 1000 - input.value.length;
       charCounterEl.textContent = remaining;
       charCounterEl.classList.toggle('warn', remaining < 100);
     });
 
-    // Roster toggle
-    if (rosterToggle) {
-      rosterToggle.addEventListener('click', function () {
-        roster.classList.add('open');
-        rosterBackdrop.classList.add('show');
-      });
-    }
-    if (rosterBackdrop) {
-      rosterBackdrop.addEventListener('click', function () {
-        roster.classList.remove('open');
-        rosterBackdrop.classList.remove('show');
-      });
-    }
-
-    // Mobile sidebar toggle
-    if (sidebarToggle) {
-      sidebarToggle.addEventListener('click', function () {
-        sidebar.classList.toggle('open');
-      });
-    }
-
-    window.addEventListener('beforeunload', function () {
-      socket.emit('leave', { room_id: roomId });
+    if (rosterToggle) rosterToggle.addEventListener('click', () => {
+      roster.classList.add('open');
+      rosterBackdrop.classList.add('show');
     });
+    if (rosterBackdrop) rosterBackdrop.addEventListener('click', () => {
+      roster.classList.remove('open');
+      rosterBackdrop.classList.remove('show');
+    });
+
+    if (sidebarToggle) sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
+
+    window.addEventListener('beforeunload', () => socket.emit('leave', { room_id: roomId }));
 
     paintAvatars();
     scrollToBottom();
