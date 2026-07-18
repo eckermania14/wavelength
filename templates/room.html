@@ -173,6 +173,8 @@
           </aside>
         </div>
         <div class="typing-indicator" id="typing-indicator"></div>
+        
+        <!-- Message Form -->
         <form id="message-form" class="message-form">
           <input type="text" id="message-input" maxlength="1000" placeholder="Say something..." autocomplete="off" autofocus>
           <span class="char-counter" id="char-counter">1000</span>
@@ -194,6 +196,12 @@
     const username = {{ username|tojson }};
     const socket = io();
 
+    // Core Elements
+    const messagesEl = document.getElementById('messages');
+    const form = document.getElementById('message-form');
+    const input = document.getElementById('message-input');
+    const charCounterEl = document.getElementById('char-counter');
+
     let localStream = null;
     let peers = {};
     let isInVoice = false;
@@ -207,6 +215,52 @@
       console.log("[Voice]", msg);
     }
 
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function addMessage(entry, mine) {
+      const div = document.createElement('div');
+      div.className = 'message' + (mine ? ' mine' : '');
+      const avatar = document.createElement('span');
+      avatar.className = 'avatar';
+      avatar.textContent = entry.username.charAt(0).toUpperCase();
+      const col = document.createElement('div');
+      col.className = 'bubble-col';
+      const meta = document.createElement('span');
+      meta.className = 'meta';
+      const nick = document.createElement('span');
+      nick.className = 'nick';
+      nick.textContent = entry.username;
+      nick.dataset.username = entry.username;
+      const time = document.createElement('span');
+      time.className = 'time';
+      time.textContent = entry.time;
+      meta.appendChild(nick);
+      meta.appendChild(time);
+      const bubble = document.createElement('span');
+      bubble.className = 'bubble';
+      bubble.textContent = entry.message;
+      col.appendChild(meta);
+      col.appendChild(bubble);
+      div.appendChild(avatar);
+      div.appendChild(col);
+      messagesEl.appendChild(div);
+      scrollToBottom();
+    }
+
+    // FIXED MESSAGE FORM
+    form.addEventListener('submit', function(e) {
+      e.preventDefault();
+      const text = input.value.trim();
+      if (!text) return;
+
+      socket.emit('message', { room_id: roomId, message: text });
+      input.value = '';
+      charCounterEl.textContent = '1000';
+    });
+
+    // Voice Chat Functions
     async function toggleVoice() {
       const btn = document.getElementById('toggle-voice');
       if (!isInVoice) {
@@ -214,149 +268,44 @@
           localStream = await navigator.mediaDevices.getUserMedia({
             audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
           });
-          setupAudioAnalysis();
           isInVoice = true;
           btn.textContent = '🎤 Leave Voice';
           btn.classList.add('mic-on');
           socket.emit('voice_join', { room_id: roomId });
-          logDebug('✅ Joined voice chat successfully');
+          logDebug('✅ Joined voice');
         } catch (err) {
-          logDebug('❌ Microphone error: ' + err.message);
-          alert('Could not access microphone. Please allow permission.');
+          logDebug('❌ Mic error: ' + err.message);
         }
       } else {
-        cleanupVoice();
+        if (localStream) localStream.getTracks().forEach(track => track.stop());
+        Object.values(peers).forEach(pc => pc.close());
+        peers = {};
+        isInVoice = false;
+        btn.textContent = '🎤 Join Voice';
+        btn.classList.remove('mic-on', 'speaking');
+        logDebug('Left voice');
       }
     }
 
-    function setupAudioAnalysis() {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-      analyser = audioContext.createAnalyser();
-      const source = audioContext.createMediaStreamSource(localStream);
-      source.connect(analyser);
-      analyser.fftSize = 128;
-      dataArray = new Uint8Array(analyser.frequencyBinCount);
-      setInterval(detectSpeaking, 80);
-    }
+    // Socket Events
+    socket.on('connect', () => socket.emit('join', { room_id: roomId }));
+    socket.on('message', entry => addMessage(entry, entry.username === username));
+    socket.on('voice_user_joined', (data) => { logDebug(`New voice user: ${data.username}`); });
 
-    function detectSpeaking() {
-      if (!analyser || !isInVoice) return;
-      analyser.getByteFrequencyData(dataArray);
-      const volume = dataArray.reduce((sum, val) => sum + val, 0) / dataArray.length;
-      const btn = document.getElementById('toggle-voice');
-      if (volume > 35) btn.classList.add('speaking');
-      else btn.classList.remove('speaking');
-    }
-
-    function createPeerConnection(targetUsername) {
-      const pc = new RTCPeerConnection({
-        iceServers: [
-          { urls: 'stun:stun.l.google.com:19302' },
-          { urls: 'stun:stun1.l.google.com:19302' },
-          { 
-            urls: 'turn:openrelay.metered.ca:80',
-            username: 'openrelayproject',
-            credential: 'openrelayproject'
-          }
-        ]
-      });
-
-      if (localStream) {
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      }
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('voice_ice', {
-            room_id: roomId,
-            target: targetUsername,
-            candidate: event.candidate
-          });
-        }
-      };
-
-      pc.ontrack = (event) => {
-        const audio = new Audio();
-        audio.srcObject = event.streams[0];
-        audio.autoplay = true;
-        document.body.appendChild(audio);
-        logDebug(`🎧 Receiving audio from ${targetUsername}`);
-      };
-
-      pc.onconnectionstatechange = () => {
-        logDebug(`Connection to ${targetUsername}: ${pc.connectionState}`);
-      };
-
-      peers[targetUsername] = pc;
-      return pc;
-    }
-
-    // Voice Socket Events
-    socket.on('voice_user_joined', (data) => {
-      if (data.username === username || !isInVoice) return;
-      logDebug(`New voice participant: ${data.username}`);
-      const pc = createPeerConnection(data.username);
-      pc.createOffer()
-        .then(offer => pc.setLocalDescription(offer))
-        .then(() => {
-          socket.emit('voice_offer', {
-            room_id: roomId,
-            target: data.username,
-            offer: pc.localDescription
-          });
-        });
-    });
-
-    socket.on('voice_offer', async (data) => {
-      logDebug(`Received offer from ${data.from}`);
-      const pc = createPeerConnection(data.from);
-      await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('voice_answer', {
-        room_id: roomId,
-        target: data.from,
-        answer: answer
-      });
-    });
-
-    socket.on('voice_answer', async (data) => {
-      logDebug(`Received answer from ${data.from}`);
-      const pc = peers[data.from];
-      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-    });
-
-    socket.on('voice_ice', (data) => {
-      const pc = peers[data.from];
-      if (pc) pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-    });
-
-    function cleanupVoice() {
-      if (localStream) localStream.getTracks().forEach(track => track.stop());
-      Object.values(peers).forEach(pc => pc.close());
-      peers = {};
-      isInVoice = false;
-      const btn = document.getElementById('toggle-voice');
-      btn.textContent = '🎤 Join Voice';
-      btn.classList.remove('mic-on', 'speaking');
-      logDebug('Left voice chat');
-    }
-
-    // Debug Panel Toggle
+    // Debug Toggle
     document.getElementById('debug-toggle').addEventListener('click', () => {
       const panel = document.getElementById('debug-panel');
       panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     });
 
-    // Voice Button
     document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
 
-    // Existing chat functionality (kept minimal)
-    socket.on('connect', () => socket.emit('join', { room_id: roomId }));
+    window.addEventListener('beforeunload', () => {
+      if (localStream) localStream.getTracks().forEach(track => track.stop());
+    });
 
-    window.addEventListener('beforeunload', cleanupVoice);
-
-    logDebug('Room loaded - Voice chat ready');
+    scrollToBottom();
+    logDebug('Room loaded - Ready');
   </script>
 </body>
 </html>
