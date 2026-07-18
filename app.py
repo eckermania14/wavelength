@@ -286,7 +286,6 @@ def admin_dashboard():
     if session.get("username") not in ["syphir", "admin"]:
         abort(403)
     
-    # Collect online users
     online_users = []
     for room_id, users in room_users.items():
         room = get_room(room_id)
@@ -353,10 +352,7 @@ def handle_voice_offer(data):
     offer = data.get("offer")
     username = session.get("username")
     if room_id and target and offer and username:
-        emit("voice_offer", {
-            "from": username,
-            "offer": offer
-        }, room=target, namespace='/')
+        emit("voice_offer", {"from": username, "offer": offer}, room=target)
 
 
 @socketio.on("voice_answer")
@@ -366,10 +362,7 @@ def handle_voice_answer(data):
     answer = data.get("answer")
     username = session.get("username")
     if room_id and target and answer and username:
-        emit("voice_answer", {
-            "from": username,
-            "answer": answer
-        }, room=target, namespace='/')
+        emit("voice_answer", {"from": username, "answer": answer}, room=target)
 
 
 @socketio.on("voice_ice")
@@ -379,10 +372,7 @@ def handle_voice_ice(data):
     candidate = data.get("candidate")
     username = session.get("username")
     if room_id and target and candidate and username:
-        emit("voice_ice", {
-            "from": username,
-            "candidate": candidate
-        }, room=target, namespace='/')
+        emit("voice_ice", {"from": username, "candidate": candidate}, room=target)
 
 
 @socketio.on("voice_join")
@@ -390,11 +380,10 @@ def handle_voice_join(data):
     room_id = data.get("room_id")
     username = session.get("username")
     if room_id and username:
-        # Notify others in room that someone joined voice
         emit("voice_user_joined", {"username": username}, room=str(room_id), broadcast=True, include_self=False)
 
 
-# Socket.IO Events (existing)
+# Socket.IO Events
 @socketio.on("join")
 def handle_join(data):
     room_id = data.get("room_id")
@@ -405,7 +394,6 @@ def handle_join(data):
 
     join_room(str(room_id))
     room_users.setdefault(room_id, set()).add(username)
-
     emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
 
 
@@ -419,7 +407,6 @@ def handle_leave(data):
 
     leave_room(str(room_id))
     room_users.get(room_id, set()).discard(username)
-
     emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
 
 
