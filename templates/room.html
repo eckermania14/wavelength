@@ -9,16 +9,6 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <style>
-  .shell {
-    display: flex;
-    height: 100vh;
-    overflow: hidden;
-  }
-  .main {
-    flex: 1;
-    overflow: hidden;
-    padding: 0;
-  }
   .chat-wrap {
     height: 100%;
     display: flex;
@@ -26,41 +16,16 @@
     background: #1a1c24;
     border: none;
     box-shadow: none;
-    margin: 0;
-    border-radius: 0;
   }
-  .chat-body {
-    flex: 1;
-    display: flex;
-    overflow: hidden;
-  }
-  .messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 20px;
-    background: #14161c;
-  }
-  .roster {
-    width: 180px;
-    flex-shrink: 0;
-    border-left: 1px solid #2a2d3a;
-    background: #1f222e;
-  }
+  .main { padding: 0; overflow: hidden; }
+  .chat-body { flex: 1; display: flex; overflow: hidden; }
+  .messages { background: #14161c; padding: 20px; flex: 1; overflow-y: auto; }
 
-  /* Mobile */
-  @media (max-width: 768px) {
-    .sidebar {
-      display: none;
-      position: fixed;
-      top: 0; left: 0; bottom: 0;
-      width: 80%; max-width: 280px;
-      z-index: 100;
-      box-shadow: 4px 0 30px rgba(0,0,0,0.6);
-    }
-    .sidebar.open { display: flex; }
-    .rail { width: 60px; }
-    .roster { display: none; }
-  }
+  /* Hardcoded Custom Username Colors */
+  .nick[data-username="syphir"] { color: #ff4d4d !important; text-shadow: 0 0 8px #ff4d4d; }
+  .nick[data-username="admin"] { color: #ffd700 !important; text-shadow: 0 0 8px #ffd700; }
+  .nick[data-username="mod"] { color: #00ff9d !important; text-shadow: 0 0 6px #00ff9d; }
+  /* Add more below as needed */
 </style>
 </head>
 <body class="dashboard-body">
@@ -139,7 +104,10 @@
               <div class="message {% if m.username == username %}mine{% endif %}">
                 <span class="avatar" data-username="{{ m.username }}">{{ m.username[0]|upper }}</span>
                 <div class="bubble-col">
-                  <span class="meta"><span class="nick">{{ m.username }}</span><span class="time">{{ m.time }}</span></span>
+                  <span class="meta">
+                    <span class="nick" data-username="{{ m.username }}">{{ m.username }}</span>
+                    <span class="time">{{ m.time }}</span>
+                  </span>
                   <span class="bubble">{{ m.message }}</span>
                 </div>
               </div>
@@ -188,12 +156,23 @@
     const sidebarToggle = document.getElementById('sidebar-toggle');
 
     function colorForName(name) {
+      // Special hardcoded colors
+      const specialColors = {
+        "syphir": "#ff4d4d",
+        "admin": "#ffd700",
+        "mod": "#00ff9d",
+        "test": "#8a2be2"
+      };
+      if (specialColors[name.toLowerCase()]) {
+        return specialColors[name.toLowerCase()];
+      }
+      // Default pastel
       let hash = 0;
       for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
       }
       const hue = Math.abs(hash) % 360;
-      return `hsl(${hue}, 55%, 62%)`;
+      return `hsl(${hue}, 70%, 65%)`;
     }
 
     function paintAvatars() {
@@ -224,6 +203,7 @@
       const nick = document.createElement('span');
       nick.className = 'nick';
       nick.textContent = entry.username;
+      nick.dataset.username = entry.username;
 
       const time = document.createElement('span');
       time.className = 'time';
