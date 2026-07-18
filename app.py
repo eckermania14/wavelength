@@ -279,16 +279,69 @@ def room(room_id):
     )
 
 
-# Admin broadcast
+# Admin dashboard
+@app.route("/admin")
+@login_required
+def admin_dashboard():
+    if session.get("username") not in ["syphir", "admin"]:
+        abort(403)
+    
+    # Collect online users
+    online_users = []
+    for room_id, users in room_users.items():
+        room = get_room(room_id)
+        room_name = room["name"] if room else "Unknown"
+        for u in users:
+            online_users.append({
+                "username": u,
+                "room_id": room_id,
+                "room_name": room_name
+            })
+    
+    return render_template("admin.html", 
+                         username=session["username"],
+                         online_users=online_users,
+                         total_online=len(online_users))
+
+
+# Global notification
 @app.route("/admin/notify", methods=["POST"])
 @login_required
 def admin_notify():
-    if session.get("username") not in ["syphir"]:
+    if session.get("username") not in ["syphir", "admin"]:
         abort(403)
+    
     title = request.form.get("title", "Server Notice")
-    message = request.form.get("message", "Server restart soon.")
-    socketio.emit('admin_notice', {"title": title, "message": message}, broadcast=True)
-    return "Notification sent."
+    message = request.form.get("message", "Maintenance in progress.")
+    
+    socketio.emit('admin_notice', {
+        "title": title,
+        "message": message
+    }, broadcast=True)
+    
+    return redirect(url_for("admin_dashboard"))
+
+
+# Kick user
+@app.route("/admin/kick", methods=["POST"])
+@login_required
+def admin_kick():
+    if session.get("username") not in ["syphir", "admin"]:
+        abort(403)
+    
+    username = request.form.get("username")
+    room_id = request.form.get("room_id")
+    
+    if username and room_id:
+        room_id = int(room_id)
+        if username in room_users.get(room_id, set()):
+            room_users[room_id].discard(username)
+            socketio.emit("system", {
+                "msg": f"{username} was kicked by admin.",
+                "type": "leave"
+            }, room=str(room_id))
+    
+    return redirect(url_for("admin_dashboard"))
 
 
 # Socket.IO Events
