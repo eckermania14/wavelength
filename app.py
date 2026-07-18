@@ -1,9 +1,12 @@
 """
 Simple chat website (inspired by y99.in) with real accounts.
+Registered users are now saved to users.json for easy persistence.
 """
 
 import sqlite3
 import secrets
+import json
+import os
 from datetime import datetime
 from functools import wraps
 
@@ -13,11 +16,10 @@ from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = secrets.token_hex(16)
-
-# Use default async_mode (threading) for Railway compatibility
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode=None)
 
 DB_PATH = "chat.db"
+USERS_JSON = "users.json"
 
 USERNAME_MIN_LEN = 5
 PASSWORD_MIN_LEN = 6
@@ -37,6 +39,38 @@ FEATURED_ROOMS = [
 ]
 
 
+# JSON User Storage
+def load_users():
+    if os.path.exists(USERS_JSON):
+        try:
+            with open(USERS_JSON, 'r') as f:
+                return json.load(f)
+        except:
+            return {}
+    return {}
+
+
+def save_users(users_dict):
+    with open(USERS_JSON, 'w') as f:
+        json.dump(users_dict, f, indent=2)
+
+
+users_db = load_users()  # username -> {"password_hash": str, "created_at": str}
+
+
+def get_user_by_username(username):
+    return users_db.get(username)
+
+
+def create_user(username, password):
+    users_db[username] = {
+        "password_hash": generate_password_hash(password),
+        "created_at": datetime.now().isoformat()
+    }
+    save_users(users_db)
+
+
+# SQLite for Rooms
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -53,16 +87,6 @@ def close_db(exception=None):
 
 def init_db():
     db = sqlite3.connect(DB_PATH)
-    db.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE NOT NULL,
-            password_hash TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-        """
-    )
     db.execute(
         """
         CREATE TABLE IF NOT EXISTS rooms (
@@ -86,20 +110,6 @@ def init_db():
             )
     db.commit()
     db.close()
-
-
-def get_user_by_username(username):
-    db = get_db()
-    return db.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
-
-
-def create_user(username, password):
-    db = get_db()
-    db.execute(
-        "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
-        (username, generate_password_hash(password), datetime.now().isoformat()),
-    )
-    db.commit()
 
 
 def get_room(room_id):
@@ -177,7 +187,7 @@ def add_message(room_id, username, text):
     return entry
 
 
-# === Routes ===
+# Routes
 @app.route("/register", methods=["GET", "POST"])
 def register():
     if request.method == "POST":
@@ -214,12 +224,12 @@ def login():
         password = request.form.get("password", "")
 
         user = get_user_by_username(username)
-        if user is None or not check_password_hash(user["password_hash"], password):
+        if not user or not check_password_hash(user["password_hash"], password):
             return render_template(
                 "login.html", error="Incorrect username or password.", username=username
             )
 
-        session["username"] = user["username"]
+        session["username"] = username
         return redirect(url_for("index"))
 
     return render_template("login.html")
@@ -320,6 +330,5 @@ def handle_disconnect():
 # Initialize
 init_db()
 
-# Run
 if __name__ == "__main__":
     socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
