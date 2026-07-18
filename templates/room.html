@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <style>
+  body { background: #0f1117; }
   .chat-wrap {
     height: 100%;
     display: flex;
@@ -16,16 +17,74 @@
     background: #1a1c24;
     border: none;
     box-shadow: none;
+    margin: 0;
+    border-radius: 0;
   }
   .main { padding: 0; overflow: hidden; }
   .chat-body { flex: 1; display: flex; overflow: hidden; }
-  .messages { background: #14161c; padding: 20px; flex: 1; overflow-y: auto; }
+  .messages { 
+    flex: 1; 
+    overflow-y: auto; 
+    padding: 20px; 
+    background: #14161c; 
+  }
+  .bubble { 
+    background: #2a2d3a; 
+    border-radius: 18px 18px 18px 4px; 
+  }
+  .message.mine .bubble { 
+    background: #ff8f6b; 
+    color: #1a1c24; 
+    border-radius: 18px 18px 4px 18px; 
+  }
+  .chat-header { 
+    background: #1f222e; 
+    border-bottom: 1px solid #2a2d3a; 
+  }
+  .roster { 
+    width: 180px; 
+    flex-shrink: 0; 
+    border-left: 1px solid #2a2d3a; 
+    background: #1f222e; 
+  }
 
-  /* Hardcoded Custom Username Colors */
-  .nick[data-username="syphir"] { color: #ff4d4d !important; text-shadow: 0 0 8px #ff4d4d; }
-  .nick[data-username="lowcortisol"] { color: #ffa94d !important; text-shadow: 0 0 8px #ffd700; }
-  .nick[data-username="mod"] { color: #00ff9d !important; text-shadow: 0 0 6px #00ff9d; }
-  /* Add more below as needed */
+  /* Custom Username Colors */
+  .nick[data-username="syphir"] { 
+    color: #ff4d4d !important; 
+    text-shadow: 0 0 8px #ff4d4d; 
+  }
+
+  /* Typing Indicator */
+  .typing-indicator {
+    padding: 8px 18px;
+    font-size: 13px;
+    color: #8a8f9e;
+    font-style: italic;
+    min-height: 28px;
+  }
+
+  /* Admin Modal */
+  .modal {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: rgba(0,0,0,0.9);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    z-index: 2000;
+  }
+  .modal-content {
+    background: #1f222e;
+    padding: 28px 36px;
+    border-radius: 12px;
+    max-width: 400px;
+    text-align: center;
+    border: 2px solid #ff8f6b;
+  }
+  .modal-content h2 { 
+    margin: 0 0 16px 0; 
+    color: #ff8f6b; 
+  }
 </style>
 </head>
 <body class="dashboard-body">
@@ -136,6 +195,15 @@
     </main>
   </div>
 
+  <!-- Admin Notification Modal -->
+  <div id="admin-modal" class="modal">
+    <div class="modal-content">
+      <h2 id="modal-title">Server Notice</h2>
+      <p id="modal-message"></p>
+      <button onclick="dismissModal()" class="btn">OK</button>
+    </div>
+  </div>
+
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script>
     const roomId = {{ room.id|tojson }};
@@ -156,17 +224,12 @@
     const sidebarToggle = document.getElementById('sidebar-toggle');
 
     function colorForName(name) {
-      // Special hardcoded colors
-      const specialColors = {
+      const special = {
         "syphir": "#ff4d4d",
         "admin": "#ffd700",
-        "mod": "#00ff9d",
-        "test": "#8a2be2"
+        "mod": "#00ff9d"
       };
-      if (specialColors[name.toLowerCase()]) {
-        return specialColors[name.toLowerCase()];
-      }
-      // Default pastel
+      if (special[name.toLowerCase()]) return special[name.toLowerCase()];
       let hash = 0;
       for (let i = 0; i < name.length; i++) {
         hash = name.charCodeAt(i) + ((hash << 5) - hash);
@@ -233,6 +296,16 @@
       scrollToBottom();
     }
 
+    function showAdminModal(title, message) {
+      document.getElementById('modal-title').textContent = title;
+      document.getElementById('modal-message').textContent = message;
+      document.getElementById('admin-modal').style.display = 'flex';
+    }
+
+    function dismissModal() {
+      document.getElementById('admin-modal').style.display = 'none';
+    }
+
     socket.on('connect', () => socket.emit('join', { room_id: roomId }));
     socket.on('message', entry => addMessage(entry, entry.username === username));
     socket.on('system', data => addSystemMessage(data.msg));
@@ -244,6 +317,9 @@
         onlineListEl.appendChild(li);
       });
       onlineCountEl.textContent = data.online.length;
+    });
+    socket.on('admin_notice', data => {
+      showAdminModal(data.title, data.message);
     });
 
     form.addEventListener('submit', e => {
