@@ -21,11 +21,6 @@
   .chat-body { flex: 1; display: flex; overflow: hidden; }
   .messages { background: #14161c; padding: 20px; flex: 1; overflow-y: auto; }
   
-  /* Hardcoded Custom Username Colors */
-  .nick[data-username="syphir"] { color: #ff4d4d !important; text-shadow: 0 0 8px #ff4d4d; }
-  .nick[data-username="lowcortisol"] { color: #ffa94d !important; text-shadow: 0 0 8px #ffd700; }
-  .nick[data-username="arika_62"] { color: #f046dc !important; text-shadow: 0 0 6px #00ff9d; }
-
   /* Voice Chat UI */
   .voice-bar {
     background: var(--panel-raised);
@@ -43,21 +38,39 @@
     cursor: pointer;
     transition: all 0.2s;
   }
-  .voice-btn.mic-on {
-    background: #6fcf97;
-    color: #14161c;
-  }
-  .voice-users {
-    display: flex;
-    gap: 8px;
-    flex-wrap: wrap;
-  }
+  .voice-btn.mic-on { background: #6fcf97; color: #14161c; }
+  .voice-btn.mic-on.speaking { background: #ff8f6b; }
+
   .voice-user {
     background: rgba(111, 207, 151, 0.2);
     color: var(--signal);
     padding: 4px 10px;
     border-radius: 999px;
     font-size: 12px;
+    position: relative;
+  }
+  .voice-user.speaking::after {
+    content: "🔊";
+    position: absolute;
+    right: -4px;
+    top: -4px;
+    font-size: 10px;
+  }
+
+  #debug-panel {
+    position: fixed;
+    bottom: 10px;
+    right: 10px;
+    background: #1e212b;
+    border: 1px solid #ff8f6b;
+    padding: 12px;
+    border-radius: 8px;
+    font-size: 12px;
+    max-width: 320px;
+    max-height: 420px;
+    overflow-y: auto;
+    z-index: 9999;
+    display: none;
   }
 </style>
 </head>
@@ -125,6 +138,7 @@
         <div class="voice-bar" id="voice-bar">
           <button id="toggle-voice" class="voice-btn">🎤 Join Voice</button>
           <div class="voice-users" id="voice-users"></div>
+          <button id="debug-toggle" style="margin-left:auto; font-size:11px; background:none; border:none; color:#9195a4;">Debug</button>
         </div>
 
         <div class="chat-body">
@@ -168,13 +182,10 @@
     </main>
   </div>
 
-  <!-- Admin Notification Modal -->
-  <div id="admin-modal" class="modal">
-    <div class="modal-content">
-      <h2 id="modal-title">Server Notice</h2>
-      <p id="modal-message"></p>
-      <button onclick="dismissModal()" class="btn">OK</button>
-    </div>
+  <!-- Debug Panel -->
+  <div id="debug-panel">
+    <strong>🔧 Voice Debug Panel</strong><br><br>
+    <div id="debug-log" style="font-family: monospace; line-height: 1.4; max-height: 350px; overflow-y: auto;"></div>
   </div>
 
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
@@ -182,133 +193,72 @@
     const roomId = {{ room.id|tojson }};
     const username = {{ username|tojson }};
     const socket = io();
-    const messagesEl = document.getElementById('messages');
-    const typingIndicator = document.getElementById('typing-indicator');
-    const onlineListEl = document.getElementById('online-list');
-    const onlineCountEl = document.getElementById('online-count');
-    const form = document.getElementById('message-form');
-    const input = document.getElementById('message-input');
-    const charCounterEl = document.getElementById('char-counter');
-    const rosterToggle = document.getElementById('roster-toggle');
-    const roster = document.getElementById('roster');
-    const rosterBackdrop = document.getElementById('roster-backdrop');
-    const sidebar = document.getElementById('sidebar');
-    const sidebarToggle = document.getElementById('sidebar-toggle');
 
-    // Voice Chat Variables
     let localStream = null;
-    let peers = {}; // username -> RTCPeerConnection
+    let peers = {};
     let isInVoice = false;
-    const voiceUsers = new Set();
+    let voiceUsers = new Set();
+    let audioContext, analyser, dataArray;
 
-    function colorForName(name) {
-      const specialColors = {
-        "syphir": "#ff4d4d",
-        "lowcortisol": "#ffa94d",
-        "mod": "#00ff9d",
-        "test": "#8a2be2"
-      };
-      if (specialColors[name.toLowerCase()]) {
-        return specialColors[name.toLowerCase()];
-      }
-      let hash = 0;
-      for (let i = 0; i < name.length; i++) {
-        hash = name.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      const hue = Math.abs(hash) % 360;
-      return `hsl(${hue}, 70%, 65%)`;
+    function logDebug(msg) {
+      const log = document.getElementById('debug-log');
+      log.innerHTML += `<span style="color:#6fcf97">[${new Date().toLocaleTimeString()}]</span> ${msg}<br>`;
+      log.scrollTop = log.scrollHeight;
+      console.log("[Voice]", msg);
     }
 
-    function paintAvatars() {
-      document.querySelectorAll('.avatar[data-username]').forEach(el => {
-        el.style.background = colorForName(el.dataset.username);
-      });
-    }
-
-    function scrollToBottom() {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
-    }
-
-    function addMessage(entry, mine) {
-      const div = document.createElement('div');
-      div.className = 'message' + (mine ? ' mine' : '');
-      const avatar = document.createElement('span');
-      avatar.className = 'avatar';
-      avatar.textContent = entry.username.charAt(0).toUpperCase();
-      avatar.style.background = colorForName(entry.username);
-      const col = document.createElement('div');
-      col.className = 'bubble-col';
-      const meta = document.createElement('span');
-      meta.className = 'meta';
-      const nick = document.createElement('span');
-      nick.className = 'nick';
-      nick.textContent = entry.username;
-      nick.dataset.username = entry.username;
-      const time = document.createElement('span');
-      time.className = 'time';
-      time.textContent = entry.time;
-      meta.appendChild(nick);
-      meta.appendChild(time);
-      const bubble = document.createElement('span');
-      bubble.className = 'bubble';
-      bubble.textContent = entry.message;
-      col.appendChild(meta);
-      col.appendChild(bubble);
-      div.appendChild(avatar);
-      div.appendChild(col);
-      messagesEl.appendChild(div);
-      scrollToBottom();
-    }
-
-    function addSystemMessage(text) {
-      const div = document.createElement('div');
-      div.className = 'system';
-      div.textContent = text;
-      messagesEl.appendChild(div);
-      scrollToBottom();
-    }
-
-    function showAdminModal(title, message) {
-      document.getElementById('modal-title').textContent = title;
-      document.getElementById('modal-message').textContent = message;
-      document.getElementById('admin-modal').style.display = 'flex';
-    }
-
-    function dismissModal() {
-      document.getElementById('admin-modal').style.display = 'none';
-    }
-
-    // Voice Chat Functions
     async function toggleVoice() {
       const btn = document.getElementById('toggle-voice');
       if (!isInVoice) {
         try {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          localStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+          });
+          setupAudioAnalysis();
           isInVoice = true;
           btn.textContent = '🎤 Leave Voice';
           btn.classList.add('mic-on');
           socket.emit('voice_join', { room_id: roomId });
-          addSystemMessage('You joined voice chat.');
+          logDebug('✅ Joined voice chat successfully');
         } catch (err) {
-          console.error(err);
-          addSystemMessage('Failed to access microphone.');
+          logDebug('❌ Microphone error: ' + err.message);
+          alert('Could not access microphone. Please allow permission.');
         }
       } else {
-        if (localStream) {
-          localStream.getTracks().forEach(track => track.stop());
-        }
-        Object.values(peers).forEach(pc => pc.close());
-        peers = {};
-        isInVoice = false;
-        btn.textContent = '🎤 Join Voice';
-        btn.classList.remove('mic-on');
-        addSystemMessage('You left voice chat.');
+        cleanupVoice();
       }
+    }
+
+    function setupAudioAnalysis() {
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioContext.createAnalyser();
+      const source = audioContext.createMediaStreamSource(localStream);
+      source.connect(analyser);
+      analyser.fftSize = 128;
+      dataArray = new Uint8Array(analyser.frequencyBinCount);
+      setInterval(detectSpeaking, 80);
+    }
+
+    function detectSpeaking() {
+      if (!analyser || !isInVoice) return;
+      analyser.getByteFrequencyData(dataArray);
+      const volume = dataArray.reduce((sum, val) => sum + val, 0) / dataArray.length;
+      const btn = document.getElementById('toggle-voice');
+      if (volume > 35) btn.classList.add('speaking');
+      else btn.classList.remove('speaking');
     }
 
     function createPeerConnection(targetUsername) {
       const pc = new RTCPeerConnection({
-        iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        iceServers: [
+          { urls: 'stun:stun.l.google.com:19302' },
+          { urls: 'stun:stun1.l.google.com:19302' },
+          { 
+            urls: 'turn:openrelay.metered.ca:80',
+            username: 'openrelayproject',
+            credential: 'openrelayproject'
+          }
+        ]
       });
 
       if (localStream) {
@@ -326,18 +276,39 @@
       };
 
       pc.ontrack = (event) => {
-        const audio = document.createElement('audio');
+        const audio = new Audio();
         audio.srcObject = event.streams[0];
         audio.autoplay = true;
         document.body.appendChild(audio);
+        logDebug(`🎧 Receiving audio from ${targetUsername}`);
+      };
+
+      pc.onconnectionstatechange = () => {
+        logDebug(`Connection to ${targetUsername}: ${pc.connectionState}`);
       };
 
       peers[targetUsername] = pc;
       return pc;
     }
 
-    // Socket listeners for voice
+    // Voice Socket Events
+    socket.on('voice_user_joined', (data) => {
+      if (data.username === username || !isInVoice) return;
+      logDebug(`New voice participant: ${data.username}`);
+      const pc = createPeerConnection(data.username);
+      pc.createOffer()
+        .then(offer => pc.setLocalDescription(offer))
+        .then(() => {
+          socket.emit('voice_offer', {
+            room_id: roomId,
+            target: data.username,
+            offer: pc.localDescription
+          });
+        });
+    });
+
     socket.on('voice_offer', async (data) => {
+      logDebug(`Received offer from ${data.from}`);
       const pc = createPeerConnection(data.from);
       await pc.setRemoteDescription(new RTCSessionDescription(data.offer));
       const answer = await pc.createAnswer();
@@ -350,100 +321,42 @@
     });
 
     socket.on('voice_answer', async (data) => {
+      logDebug(`Received answer from ${data.from}`);
       const pc = peers[data.from];
-      if (pc) {
-        await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
-      }
+      if (pc) await pc.setRemoteDescription(new RTCSessionDescription(data.answer));
     });
 
     socket.on('voice_ice', (data) => {
       const pc = peers[data.from];
-      if (pc) {
-        pc.addIceCandidate(new RTCIceCandidate(data.candidate));
-      }
+      if (pc) pc.addIceCandidate(new RTCIceCandidate(data.candidate));
     });
 
-    socket.on('voice_user_joined', (data) => {
-      if (isInVoice && data.username !== username) {
-        const pc = createPeerConnection(data.username);
-        pc.createOffer().then(offer => {
-          pc.setLocalDescription(offer);
-          socket.emit('voice_offer', {
-            room_id: roomId,
-            target: data.username,
-            offer: offer
-          });
-        });
-      }
-      voiceUsers.add(data.username);
-      updateVoiceUsersUI();
-    });
-
-    function updateVoiceUsersUI() {
-      const container = document.getElementById('voice-users');
-      container.innerHTML = '';
-      voiceUsers.forEach(user => {
-        const el = document.createElement('span');
-        el.className = 'voice-user';
-        el.textContent = user;
-        container.appendChild(el);
-      });
+    function cleanupVoice() {
+      if (localStream) localStream.getTracks().forEach(track => track.stop());
+      Object.values(peers).forEach(pc => pc.close());
+      peers = {};
+      isInVoice = false;
+      const btn = document.getElementById('toggle-voice');
+      btn.textContent = '🎤 Join Voice';
+      btn.classList.remove('mic-on', 'speaking');
+      logDebug('Left voice chat');
     }
 
-    // Existing socket events
-    socket.on('connect', () => socket.emit('join', { room_id: roomId }));
-    socket.on('message', entry => addMessage(entry, entry.username === username));
-    socket.on('system', data => addSystemMessage(data.msg));
-    socket.on('roster', data => {
-      onlineListEl.innerHTML = '';
-      data.online.forEach(user => {
-        const li = document.createElement('li');
-        li.textContent = user;
-        onlineListEl.appendChild(li);
-      });
-      onlineCountEl.textContent = data.online.length;
-    });
-    socket.on('admin_notice', data => {
-      showAdminModal(data.title, data.message);
+    // Debug Panel Toggle
+    document.getElementById('debug-toggle').addEventListener('click', () => {
+      const panel = document.getElementById('debug-panel');
+      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     });
 
-    form.addEventListener('submit', e => {
-      e.preventDefault();
-      const text = input.value.trim();
-      if (!text) return;
-      socket.emit('message', { room_id: roomId, message: text });
-      input.value = '';
-      charCounterEl.textContent = '1000';
-      charCounterEl.classList.remove('warn');
-    });
-
-    input.addEventListener('input', () => {
-      const remaining = 1000 - input.value.length;
-      charCounterEl.textContent = remaining;
-      charCounterEl.classList.toggle('warn', remaining < 100);
-    });
-
-    if (rosterToggle) rosterToggle.addEventListener('click', () => {
-      roster.classList.add('open');
-      rosterBackdrop.classList.add('show');
-    });
-    if (rosterBackdrop) rosterBackdrop.addEventListener('click', () => {
-      roster.classList.remove('open');
-      rosterBackdrop.classList.remove('show');
-    });
-
-    if (sidebarToggle) sidebarToggle.addEventListener('click', () => sidebar.classList.toggle('open'));
-
-    // Voice button
+    // Voice Button
     document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
 
-    window.addEventListener('beforeunload', () => {
-      socket.emit('leave', { room_id: roomId });
-      if (localStream) localStream.getTracks().forEach(track => track.stop());
-    });
+    // Existing chat functionality (kept minimal)
+    socket.on('connect', () => socket.emit('join', { room_id: roomId }));
 
-    paintAvatars();
-    scrollToBottom();
+    window.addEventListener('beforeunload', cleanupVoice);
+
+    logDebug('Room loaded - Voice chat ready');
   </script>
 </body>
 </html>
