@@ -21,7 +21,7 @@
   .chat-body { flex: 1; display: flex; overflow: hidden; }
   .messages { background: #14161c; padding: 20px; flex: 1; overflow-y: auto; }
   
-  /* Hardcoded Custom Username Colors */
+  /* Colored Usernames */
   .nick[data-username="syphir"] { color: #ff4d4d !important; text-shadow: 0 0 8px #ff4d4d; }
   .nick[data-username="lowcortisol"] { color: #ffa94d !important; text-shadow: 0 0 8px #ffd700; }
   .nick[data-username="arika_62"] { color: #f046dc !important; text-shadow: 0 0 6px #00ff9d; }
@@ -61,6 +61,13 @@
     right: -4px;
     top: -4px;
     font-size: 10px;
+  }
+
+  .chat-image {
+    max-width: 280px;
+    border-radius: 10px;
+    margin-top: 4px;
+    cursor: pointer;
   }
 </style>
 </head>
@@ -146,6 +153,11 @@
                     <span class="nick" data-username="{{ m.username }}">{{ m.username }}</span>
                     <span class="time">{{ m.time }}</span>
                   </span>
+                  {% if m.image_url %}
+                    <a href="{{ m.image_url }}" target="_blank">
+                      <img class="chat-image" src="{{ m.image_url }}" alt="shared image">
+                    </a>
+                  {% endif %}
                   <span class="bubble">{{ m.message }}</span>
                 </div>
               </div>
@@ -181,6 +193,10 @@
     const form = document.getElementById('message-form');
     const input = document.getElementById('message-input');
     const charCounterEl = document.getElementById('char-counter');
+
+    let localStream = null;
+    let peers = {};
+    let isInVoice = false;
 
     function colorForName(name) {
       const special = {
@@ -218,11 +234,23 @@
       time.textContent = entry.time;
       meta.appendChild(nick);
       meta.appendChild(time);
-      const bubble = document.createElement('span');
-      bubble.className = 'bubble';
-      bubble.textContent = entry.message;
       col.appendChild(meta);
-      col.appendChild(bubble);
+      if (entry.image_url) {
+        const link = document.createElement('a');
+        link.href = entry.image_url;
+        link.target = "_blank";
+        const img = document.createElement('img');
+        img.className = 'chat-image';
+        img.src = entry.image_url;
+        link.appendChild(img);
+        col.appendChild(link);
+      }
+      if (entry.message) {
+        const bubble = document.createElement('span');
+        bubble.className = 'bubble';
+        bubble.textContent = entry.message;
+        col.appendChild(bubble);
+      }
       div.appendChild(avatar);
       div.appendChild(col);
       messagesEl.appendChild(div);
@@ -242,6 +270,25 @@
         charCounterEl.textContent = '1000';
       }
     });
+
+    // Voice Chat
+    async function toggleVoice() {
+      const btn = document.getElementById('toggle-voice');
+      if (!isInVoice) {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        isInVoice = true;
+        btn.textContent = '🎤 Leave Voice';
+        btn.classList.add('mic-on');
+        socket.emit('voice_join', { room_id: roomId });
+      } else {
+        if (localStream) localStream.getTracks().forEach(track => track.stop());
+        isInVoice = false;
+        btn.textContent = '🎤 Join Voice';
+        btn.classList.remove('mic-on');
+      }
+    }
+
+    document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
 
     socket.on('connect', () => socket.emit('join', { room_id: roomId }));
     socket.on('message', entry => addMessage(entry, entry.username === username));
