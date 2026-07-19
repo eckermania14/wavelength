@@ -37,16 +37,33 @@
     gap: 12px;
     font-size: 13px;
   }
-  .voice-btn {
-    padding: 6px 14px;
+  ..voice-btn {
+    padding: 8px 16px;
+    border: none;
     border-radius: 999px;
     font-weight: 600;
     cursor: pointer;
     transition: all 0.2s;
+
+    background: linear-gradient(135deg, #f2a65a 0%, #ff8f6b 100%);
+    color: #23150a;
+    box-shadow: 0 6px 16px rgba(242,166,90,.35);
   }
-  .voice-btn.mic-on { background: #6fcf97; color: #14161c; }
-  .voice-btn.mic-on.speaking { background: #ff8f6b; }
-  .voice-btn.muted { background: #ff8f6b; color: #14161c; }
+  .voice-btn:hover {
+    filter: brightness(1.08);
+  }
+  .voice-btn.mic-on {
+    background: #6fcf97;
+    color: #14161c;
+  }
+  .voice-btn.mic-on.speaking {
+    background: #ff8f6b;
+    color: #14161c;
+  }
+  .voice-btn.muted {
+    background: #e2685f;
+    color: #14161c;
+  }
 
   .voice-user {
     background: rgba(111, 207, 151, 0.2);
