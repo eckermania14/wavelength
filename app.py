@@ -49,12 +49,16 @@ FEATURED_ROOMS = [
 UPLOAD_ROOT = os.path.join("static", "uploads")
 AVATAR_DIR = os.path.join(UPLOAD_ROOT, "avatars")
 CHAT_IMAGE_DIR = os.path.join(UPLOAD_ROOT, "chat")
+ROOM_BG_DIR = os.path.join(UPLOAD_ROOT, "room_backgrounds")
 os.makedirs(AVATAR_DIR, exist_ok=True)
 os.makedirs(CHAT_IMAGE_DIR, exist_ok=True)
+os.makedirs(ROOM_BG_DIR, exist_ok=True)
 
 ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
 MAX_CHAT_IMAGE_DIMENSION = 1600  # px, longest side
 MAX_AVATAR_DIMENSION = 512
+MAX_ROOM_BG_DIMENSION = 1920
+BIO_MAX_LEN = 280
 
 
 def load_users():
@@ -84,6 +88,7 @@ def create_user(username, password):
         "password_hash": generate_password_hash(password),
         "created_at": datetime.now().isoformat(),
         "avatar": None,
+        "bio": "",
     }
     save_users(users_db)
 
@@ -94,6 +99,16 @@ def get_user_avatar(username):
     if user and user.get("avatar"):
         return url_for("static", filename=user["avatar"])
     return None
+
+
+def get_user_bio(username):
+    user = get_user_by_username(username)
+    return (user or {}).get("bio", "") or ""
+
+
+def update_user_bio(username, bio):
+    users_db.setdefault(username, {})["bio"] = bio
+    save_users(users_db)
 
 
 # ==================== Image upload helpers ====================
@@ -162,6 +177,36 @@ def init_db():
             created_at TEXT NOT NULL
         )
     """)
+
+    # Migrate in any columns added after the original schema was shipped.
+    existing_cols = {row[1] for row in db.execute("PRAGMA table_info(rooms)").fetchall()}
+    for col, ddl in [
+        ("owner", "ALTER TABLE rooms ADD COLUMN owner TEXT"),
+        ("password_hash", "ALTER TABLE rooms ADD COLUMN password_hash TEXT"),
+        ("background_image", "ALTER TABLE rooms ADD COLUMN background_image TEXT"),
+    ]:
+        if col not in existing_cols:
+            db.execute(ddl)
+
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS room_moderators (
+            room_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            added_by TEXT,
+            added_at TEXT NOT NULL,
+            PRIMARY KEY (room_id, username)
+        )
+    """)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS room_bans (
+            room_id INTEGER NOT NULL,
+            username TEXT NOT NULL,
+            banned_by TEXT,
+            banned_at TEXT NOT NULL,
+            PRIMARY KEY (room_id, username)
+        )
+    """)
+
     existing = {row[0].lower() for row in db.execute("SELECT name FROM rooms").fetchall()}
     for name, description in FEATURED_ROOMS:
         if name.lower() not in existing:
@@ -220,6 +265,135 @@ def with_online_count(room_row):
     return room
 
 
+# ==================== Custom rooms: ownership / moderators / bans ====================
+
+def list_custom_rooms(query=""):
+    """Non-featured, user-created rooms (i.e. rooms with an owner), optionally
+    filtered by a case-insensitive substring match on name or description."""
+    db = get_db()
+    query = (query or "").strip()
+    if query:
+        like = f"%{query}%"
+        rows = db.execute(
+            "SELECT * FROM rooms WHERE owner IS NOT NULL AND (name LIKE ? OR description LIKE ?) "
+            "ORDER BY name COLLATE NOCASE",
+            (like, like),
+        ).fetchall()
+    else:
+        rows = db.execute(
+            "SELECT * FROM rooms WHERE owner IS NOT NULL ORDER BY name COLLATE NOCASE"
+        ).fetchall()
+    return [with_online_count(r) for r in rows]
+
+
+def create_custom_room(name, description, password, background_rel, owner):
+    """Returns (room_row, error). Exactly one will be None."""
+    name = (name or "").strip()[:ROOM_NAME_MAX_LEN]
+    if not name:
+        return None, "Room name is required."
+    if get_room_by_name(name):
+        return None, "A room with that name already exists."
+
+    db = get_db()
+    password_hash = generate_password_hash(password) if password else None
+    db.execute(
+        "INSERT INTO rooms (name, description, featured, created_at, owner, password_hash, background_image) "
+        "VALUES (?, ?, 0, ?, ?, ?, ?)",
+        (name, (description or "").strip()[:280], datetime.now().isoformat(), owner, password_hash, background_rel),
+    )
+    db.commit()
+    return get_room_by_name(name), None
+
+
+def is_room_owner(room_row, username):
+    return bool(username) and room_row["owner"] == username
+
+
+def is_room_moderator(room_id, username):
+    if not username:
+        return False
+    db = get_db()
+    row = db.execute(
+        "SELECT 1 FROM room_moderators WHERE room_id = ? AND username = ?", (room_id, username)
+    ).fetchone()
+    return row is not None
+
+
+def can_moderate_room(room_row, username):
+    return is_room_owner(room_row, username) or is_room_moderator(room_row["id"], username)
+
+
+def list_room_moderators(room_id):
+    db = get_db()
+    rows = db.execute(
+        "SELECT username, added_by, added_at FROM room_moderators WHERE room_id = ? ORDER BY username COLLATE NOCASE",
+        (room_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def add_room_moderator(room_id, username, added_by):
+    db = get_db()
+    db.execute(
+        "INSERT OR IGNORE INTO room_moderators (room_id, username, added_by, added_at) VALUES (?, ?, ?, ?)",
+        (room_id, username, added_by, datetime.now().isoformat()),
+    )
+    db.commit()
+
+
+def remove_room_moderator(room_id, username):
+    db = get_db()
+    db.execute("DELETE FROM room_moderators WHERE room_id = ? AND username = ?", (room_id, username))
+    db.commit()
+
+
+def is_user_banned(room_id, username):
+    if not username:
+        return False
+    db = get_db()
+    row = db.execute(
+        "SELECT 1 FROM room_bans WHERE room_id = ? AND username = ?", (room_id, username)
+    ).fetchone()
+    return row is not None
+
+
+def list_room_bans(room_id):
+    db = get_db()
+    rows = db.execute(
+        "SELECT username, banned_by, banned_at FROM room_bans WHERE room_id = ? ORDER BY username COLLATE NOCASE",
+        (room_id,),
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def ban_user_from_room(room_id, username, banned_by):
+    db = get_db()
+    db.execute(
+        "INSERT OR REPLACE INTO room_bans (room_id, username, banned_by, banned_at) VALUES (?, ?, ?, ?)",
+        (room_id, username, banned_by, datetime.now().isoformat()),
+    )
+    db.commit()
+    # Banned mods lose their moderator status too.
+    db.execute("DELETE FROM room_moderators WHERE room_id = ? AND username = ?", (room_id, username))
+    db.commit()
+
+
+def unban_user_from_room(room_id, username):
+    db = get_db()
+    db.execute("DELETE FROM room_bans WHERE room_id = ? AND username = ?", (room_id, username))
+    db.commit()
+
+
+def room_is_unlocked_for_session(room_row, username):
+    """True if the room has no password, the user owns/moderates it, or they've
+    already entered the password this session."""
+    if not room_row["password_hash"]:
+        return True
+    if can_moderate_room(room_row, username):
+        return True
+    return room_row["id"] in session.get("unlocked_rooms", [])
+
+
 def online_users_with_avatars(room_id):
     """List of {username, avatar} dicts for everyone in a room, sorted by name."""
     names = sorted(room_users.get(room_id, set()))
@@ -233,6 +407,12 @@ def serialize_room(room_dict):
         "name": room_dict["name"],
         "description": room_dict.get("description", ""),
         "online_count": room_dict.get("online_count", 0),
+        "owner": room_dict.get("owner"),
+        "has_password": bool(room_dict.get("password_hash")),
+        "background_image": (
+            url_for("static", filename=room_dict["background_image"])
+            if room_dict.get("background_image") else None
+        ),
     }
 
 
@@ -341,12 +521,18 @@ def index():
         return redirect(url_for("room", room_id=room["id"]))
 
     username = session["username"]
+    q = request.args.get("q", "")
     return render_template(
         "index.html",
         featured_rooms=list_featured_rooms(),
         active_rooms=list_active_rooms(),
+        custom_rooms=list_custom_rooms(q),
+        room_query=q,
         username=username,
         avatar_url=get_user_avatar(username),
+        room_error=request.args.get("room_error"),
+        banned_room=request.args.get("banned_room"),
+        open_create_room=request.args.get("open_create_room"),
     )
 
 
@@ -358,18 +544,245 @@ def room(room_id):
         abort(404)
 
     username = session.get("username")
+
+    if is_user_banned(room_id, username) and not is_room_owner(room_row, username):
+        return redirect(url_for("index", banned_room=room_row["name"]))
+
+    if not room_is_unlocked_for_session(room_row, username):
+        return redirect(url_for("room_join", room_id=room_id))
+
     history = message_history.get(room_id, [])
     online = online_users_with_avatars(room_id)
+    is_owner = is_room_owner(room_row, username)
+    is_moderator = can_moderate_room(room_row, username)
 
     return render_template(
         "room.html",
         room=room_row,
+        room_background=(
+            url_for("static", filename=room_row["background_image"])
+            if room_row["background_image"] else None
+        ),
         username=username,
         avatar_url=get_user_avatar(username),
         history=history,
         online=online,
         active_rooms=list_active_rooms(),
+        is_owner=is_owner,
+        is_moderator=is_moderator,
+        moderators=list_room_moderators(room_id) if is_owner else [],
+        bans=list_room_bans(room_id) if is_moderator else [],
+        settings_error=request.args.get("settings_error"),
+        settings_success=request.args.get("settings_success"),
+        open_settings=request.args.get("open_settings"),
     )
+
+
+@app.route("/r/<int:room_id>/join", methods=["GET", "POST"])
+@login_required
+def room_join(room_id):
+    room_row = get_room(room_id)
+    if room_row is None:
+        abort(404)
+    username = session.get("username")
+
+    if is_user_banned(room_id, username) and not is_room_owner(room_row, username):
+        return redirect(url_for("index", banned_room=room_row["name"]))
+
+    if room_is_unlocked_for_session(room_row, username):
+        return redirect(url_for("room", room_id=room_id))
+
+    error = None
+    if request.method == "POST":
+        password = request.form.get("password", "")
+        if password and check_password_hash(room_row["password_hash"], password):
+            unlocked = session.get("unlocked_rooms", [])
+            unlocked.append(room_id)
+            session["unlocked_rooms"] = unlocked
+            return redirect(url_for("room", room_id=room_id))
+        error = "Incorrect password."
+
+    return render_template("room_join.html", room=room_row, error=error)
+
+
+# ==================== Custom room creation ====================
+
+@app.route("/rooms/new", methods=["POST"])
+@login_required
+def create_room_route():
+    username = session["username"]
+    name = request.form.get("name", "")
+    description = request.form.get("description", "")
+    password = request.form.get("password", "")
+
+    background_rel = None
+    file = request.files.get("background_image")
+    if file and file.filename:
+        background_rel, err = save_uploaded_image(
+            file, ROOM_BG_DIR, MAX_ROOM_BG_DIMENSION, filename_prefix="room_"
+        )
+        if err:
+            return redirect(url_for("index", room_error=err, open_create_room=1))
+
+    room_row, err = create_custom_room(name, description, password, background_rel, username)
+    if err:
+        return redirect(url_for("index", room_error=err, open_create_room=1))
+
+    return redirect(url_for("room", room_id=room_row["id"]))
+
+
+@app.route("/api/rooms/browse")
+@api_login_required
+def api_rooms_browse():
+    q = request.args.get("q", "")
+    return {"rooms": [serialize_room(r) for r in list_custom_rooms(q)]}
+
+
+# ==================== Per-room settings, moderators, and bans ====================
+
+def _room_or_404(room_id):
+    room_row = get_room(room_id)
+    if room_row is None:
+        abort(404)
+    return room_row
+
+
+@app.route("/r/<int:room_id>/settings", methods=["POST"])
+@login_required
+def room_settings(room_id):
+    room_row = _room_or_404(room_id)
+    username = session["username"]
+    if not is_room_owner(room_row, username):
+        abort(403)
+
+    name = request.form.get("name", "").strip()[:ROOM_NAME_MAX_LEN]
+    description = request.form.get("description", "").strip()[:280]
+    new_password = request.form.get("password", "")
+    remove_password = request.form.get("remove_password") == "1"
+    remove_background = request.form.get("remove_background") == "1"
+
+    if not name:
+        return redirect(url_for("room", room_id=room_id, settings_error="Room name is required.", open_settings=1))
+
+    existing = get_room_by_name(name)
+    if existing and existing["id"] != room_id:
+        return redirect(url_for("room", room_id=room_id, settings_error="Another room already has that name.", open_settings=1))
+
+    db = get_db()
+
+    background_rel = room_row["background_image"]
+    if remove_background:
+        if background_rel:
+            old_path = os.path.join("static", background_rel)
+            if os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+        background_rel = None
+
+    file = request.files.get("background_image")
+    if file and file.filename:
+        new_rel, err = save_uploaded_image(file, ROOM_BG_DIR, MAX_ROOM_BG_DIMENSION, filename_prefix="room_")
+        if err:
+            return redirect(url_for("room", room_id=room_id, settings_error=err, open_settings=1))
+        if room_row["background_image"]:
+            old_path = os.path.join("static", room_row["background_image"])
+            if os.path.exists(old_path):
+                try:
+                    os.remove(old_path)
+                except OSError:
+                    pass
+        background_rel = new_rel
+
+    if remove_password:
+        password_hash = None
+    elif new_password:
+        password_hash = generate_password_hash(new_password)
+    else:
+        password_hash = room_row["password_hash"]
+
+    db.execute(
+        "UPDATE rooms SET name = ?, description = ?, password_hash = ?, background_image = ? WHERE id = ?",
+        (name, description, password_hash, background_rel, room_id),
+    )
+    db.commit()
+
+    return redirect(url_for("room", room_id=room_id, settings_success="Room settings updated.", open_settings=1))
+
+
+@app.route("/r/<int:room_id>/moderators/add", methods=["POST"])
+@login_required
+def room_moderators_add(room_id):
+    room_row = _room_or_404(room_id)
+    username = session["username"]
+    if not is_room_owner(room_row, username):
+        abort(403)
+
+    target = request.form.get("username", "").strip()
+    if not target:
+        return redirect(url_for("room", room_id=room_id, settings_error="Enter a username.", open_settings=1))
+    if not get_user_by_username(target):
+        return redirect(url_for("room", room_id=room_id, settings_error=f"No user named '{target}'.", open_settings=1))
+    if target == room_row["owner"]:
+        return redirect(url_for("room", room_id=room_id, settings_error="The owner is already in charge.", open_settings=1))
+
+    add_room_moderator(room_id, target, username)
+    return redirect(url_for("room", room_id=room_id, settings_success=f"{target} is now a moderator.", open_settings=1))
+
+
+@app.route("/r/<int:room_id>/moderators/remove", methods=["POST"])
+@login_required
+def room_moderators_remove(room_id):
+    room_row = _room_or_404(room_id)
+    username = session["username"]
+    if not is_room_owner(room_row, username):
+        abort(403)
+
+    target = request.form.get("username", "").strip()
+    remove_room_moderator(room_id, target)
+    return redirect(url_for("room", room_id=room_id, settings_success=f"{target} is no longer a moderator.", open_settings=1))
+
+
+@app.route("/r/<int:room_id>/ban", methods=["POST"])
+@login_required
+def room_ban(room_id):
+    room_row = _room_or_404(room_id)
+    username = session["username"]
+    if not can_moderate_room(room_row, username):
+        abort(403)
+
+    target = request.form.get("username", "").strip()
+    if not target:
+        return redirect(url_for("room", room_id=room_id, settings_error="Enter a username.", open_settings=1))
+    if target == room_row["owner"]:
+        return redirect(url_for("room", room_id=room_id, settings_error="You can't ban the room owner.", open_settings=1))
+    if not get_user_by_username(target):
+        return redirect(url_for("room", room_id=room_id, settings_error=f"No user named '{target}'.", open_settings=1))
+
+    ban_user_from_room(room_id, target, username)
+
+    # Boot them out immediately if they're currently in the room.
+    if target in room_users.get(room_id, set()):
+        room_users[room_id].discard(target)
+        socketio.emit("system", {"msg": f"{target} was banned from this room.", "type": "leave"}, room=str(room_id))
+        socketio.emit("roster", {"online": online_users_with_avatars(room_id)}, room=str(room_id))
+        socketio.emit("banned", {"username": target}, room=str(room_id))
+
+    return redirect(url_for("room", room_id=room_id, settings_success=f"{target} has been banned.", open_settings=1))
+
+
+@app.route("/r/<int:room_id>/unban", methods=["POST"])
+@login_required
+def room_unban(room_id):
+    room_row = _room_or_404(room_id)
+    username = session["username"]
+    if not can_moderate_room(room_row, username):
+        abort(403)
+
+    target = request.form.get("username", "").strip()
+    unban_user_from_room(room_id, target)
+    return redirect(url_for("room", room_id=room_id, settings_success=f"{target} has been unbanned.", open_settings=1))
 
 
 # ==================== Profile / avatar upload ====================
@@ -382,31 +795,59 @@ def profile():
     success = None
 
     if request.method == "POST":
+        bio = request.form.get("bio")
         file = request.files.get("avatar")
-        rel_path, err = save_uploaded_image(
-            file, AVATAR_DIR, MAX_AVATAR_DIMENSION, filename_prefix=f"{username}_"
-        )
-        if err:
-            error = err
-        else:
-            old = users_db.get(username, {}).get("avatar")
-            users_db.setdefault(username, {})["avatar"] = rel_path
-            save_users(users_db)
-            if old:
-                old_path = os.path.join("static", old)
-                if os.path.exists(old_path):
-                    try:
-                        os.remove(old_path)
-                    except OSError:
-                        pass
-            success = "Profile picture updated."
+        has_file = bool(file and file.filename)
+
+        if has_file:
+            rel_path, err = save_uploaded_image(
+                file, AVATAR_DIR, MAX_AVATAR_DIMENSION, filename_prefix=f"{username}_"
+            )
+            if err:
+                error = err
+            else:
+                old = users_db.get(username, {}).get("avatar")
+                users_db.setdefault(username, {})["avatar"] = rel_path
+                save_users(users_db)
+                if old:
+                    old_path = os.path.join("static", old)
+                    if os.path.exists(old_path):
+                        try:
+                            os.remove(old_path)
+                        except OSError:
+                            pass
+
+        if bio is not None and not error:
+            update_user_bio(username, bio.strip()[:BIO_MAX_LEN])
+
+        if not error:
+            success = "Profile updated."
 
     return render_template(
         "profile.html",
         username=username,
         avatar_url=get_user_avatar(username),
+        bio=get_user_bio(username),
+        bio_max_len=BIO_MAX_LEN,
         error=error,
         success=success,
+    )
+
+
+@app.route("/u/<username>")
+@login_required
+def user_profile(username):
+    user = get_user_by_username(username)
+    if user is None:
+        abort(404)
+    return render_template(
+        "user_profile.html",
+        profile_username=username,
+        avatar_url=get_user_avatar(username),
+        bio=get_user_bio(username),
+        created_at=user.get("created_at"),
+        is_admin=username in ADMIN_USERS,
+        is_me=(username == session.get("username")),
     )
 
 
@@ -734,6 +1175,12 @@ def handle_join(data):
     if not room_id or not username:
         return
     room_id = int(room_id)
+    room_row = get_room(room_id)
+    if room_row is None:
+        return
+    if is_user_banned(room_id, username) and not is_room_owner(room_row, username):
+        emit("banned", {"username": username})
+        return
     join_room(str(room_id))
     room_users.setdefault(room_id, set()).add(username)
     emit("roster", {"online": online_users_with_avatars(room_id)}, room=str(room_id))
