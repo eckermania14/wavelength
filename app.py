@@ -240,7 +240,42 @@ def room(room_id):
         online=online,
         active_rooms=list_active_rooms(),
     )
+    
+@app.route("/profile", methods=["GET", "POST"])
+@login_required
+def profile():
+    username = session["username"]
+    error = None
+    success = None
 
+    if request.method == "POST":
+        file = request.files.get("avatar")
+        rel_path, err = save_uploaded_image(
+            file, AVATAR_DIR, MAX_AVATAR_DIMENSION, filename_prefix=f"{username}_"
+        )
+        if err:
+            error = err
+        else:
+            old = users_db.get(username, {}).get("avatar")
+            users_db.setdefault(username, {})["avatar"] = rel_path
+            save_users(users_db)
+            if old:
+                old_path = os.path.join("static", old)
+                if os.path.exists(old_path):
+                    try:
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+            success = "Profile picture updated."
+
+    return render_template(
+        "profile.html",
+        username=username,
+        avatar_url=get_user_avatar(username),
+        error=error,
+        success=success,
+    )
+    
 # Admin routes (kept simple)
 @app.route("/admin")
 @login_required
