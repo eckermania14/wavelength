@@ -215,6 +215,34 @@
           <p class="empty-note">No one's on air yet — open a channel below to get things started.</p>
         {% endif %}
       </div>
+
+      <div class="sidebar-section-label">Direct messages</div>
+      <form class="sidebar-search dm-search" id="dm-search-form">
+        <input type="text" id="dm-search-input" maxlength="32" placeholder="Message a user...">
+        <button type="submit" aria-label="Message">→</button>
+      </form>
+      <div class="dm-list-wrap">
+        {% if dm_conversations %}
+          <ul class="dm-list">
+          {% for dm in dm_conversations %}
+            <li>
+              <a href="{{ url_for('room', room_id=dm.room_id) }}" class="dm-row">
+                <span class="avatar dm-avatar">
+                  {% if dm.avatar %}<img src="{{ dm.avatar }}" alt="{{ dm.username }}">{% else %}{{ dm.username[0]|upper }}{% endif %}
+                </span>
+                <span class="dm-info">
+                  <span class="dm-username">{{ dm.username }}</span>
+                  {% if dm.last_message %}<span class="dm-preview">{{ dm.last_message }}</span>{% endif %}
+                </span>
+                {% if dm.online %}<span class="on-air live small"><span class="pulse"></span></span>{% endif %}
+              </a>
+            </li>
+          {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note small">No conversations yet — search a username above to start one.</p>
+        {% endif %}
+      </div>
     </aside>
     <main class="main">
       <header class="main-header">
@@ -369,6 +397,13 @@
     searchInput.addEventListener('input', () => {
       clearTimeout(searchTimer);
       searchTimer = setTimeout(runSearch, 250);
+    });
+
+    // Direct-message search box: jump straight into the conversation.
+    document.getElementById('dm-search-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const val = document.getElementById('dm-search-input').value.trim();
+      if (val) window.location.href = '/dm/' + encodeURIComponent(val);
     });
   </script>
 </body>

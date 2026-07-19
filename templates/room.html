@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{{ room.name }} - Wavelength</title>
+<title>{% if is_dm %}@{{ dm_partner }}{% else %}{{ room.name }}{% endif %} - Wavelength</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -17,7 +17,7 @@
     border: none;
     box-shadow: none;
   }
-  .main { padding: 0; overflow: hidden; }
+  .main { flex-direction: column; padding: 0; overflow: hidden; }
   .chat-body { flex: 1; display: flex; overflow: hidden; }
   .messages { background: #14161c; padding: 20px; flex: 1; overflow-y: auto; }
   
@@ -37,7 +37,7 @@
     gap: 12px;
     font-size: 13px;
   }
-  ..voice-btn {
+  .voice-btn {
     padding: 8px 16px;
     border: none;
     border-radius: 999px;
@@ -374,7 +374,6 @@
 
         </div>
       </div>
-      </div>
       <form method="POST" action="{{ url_for('index') }}" class="sidebar-search">
         <input type="text" name="room" maxlength="32" placeholder="Search or create a channel">
         <button type="submit">→</button>
@@ -397,12 +396,44 @@
           <p class="empty-note">No one's on air yet.</p>
         {% endif %}
       </div>
+
+      <div class="sidebar-section-label">Direct messages</div>
+      <form class="sidebar-search dm-search" id="dm-search-form">
+        <input type="text" id="dm-search-input" maxlength="32" placeholder="Message a user...">
+        <button type="submit" aria-label="Message">→</button>
+      </form>
+      <div class="dm-list-wrap">
+        {% if dm_conversations %}
+          <ul class="dm-list">
+          {% for dm in dm_conversations %}
+            <li>
+              <a href="{{ url_for('room', room_id=dm.room_id) }}" class="dm-row {% if is_dm and dm.room_id == room.id %}dm-row-active{% endif %}">
+                <span class="avatar dm-avatar">
+                  {% if dm.avatar %}<img src="{{ dm.avatar }}" alt="{{ dm.username }}">{% else %}{{ dm.username[0]|upper }}{% endif %}
+                </span>
+                <span class="dm-info">
+                  <span class="dm-username">{{ dm.username }}</span>
+                  {% if dm.last_message %}<span class="dm-preview">{{ dm.last_message }}</span>{% endif %}
+                </span>
+                {% if dm.online %}<span class="on-air live small"><span class="pulse"></span></span>{% endif %}
+              </a>
+            </li>
+          {% endfor %}
+          </ul>
+        {% else %}
+          <p class="empty-note small">No conversations yet — search a username above.</p>
+        {% endif %}
+      </div>
     </aside>
     <main class="main">
       <div class="chat-wrap">
         <header class="chat-header">
           <div>
-            <span class="channel-name">#{{ room.name }}</span>
+            {% if is_dm %}
+              <span class="channel-name">@{{ dm_partner }}</span>
+            {% else %}
+              <span class="channel-name">#{{ room.name }}</span>
+            {% endif %}
             <span class="you">you are {{ username }}</span>
           </div>
           <div class="header-actions">
@@ -429,8 +460,12 @@
           <div id="messages" class="messages">
             {% if not history %}
               <div class="empty-state">
-                <span class="empty-icon">📻</span>
-                <p>Nobody's said anything yet. Be the first voice on #{{ room.name }}.</p>
+                <span class="empty-icon">{% if is_dm %}✉️{% else %}📻{% endif %}</span>
+                {% if is_dm %}
+                  <p>This is the start of your conversation with {{ dm_partner }}.</p>
+                {% else %}
+                  <p>Nobody's said anything yet. Be the first voice on #{{ room.name }}.</p>
+                {% endif %}
               </div>
             {% endif %}
             {% for m in history %}
@@ -729,6 +764,16 @@
       input.value = '';
       charCounterEl.textContent = '1000';
     });
+
+    // Direct-message search box: jump straight into the conversation.
+    const dmSearchForm = document.getElementById('dm-search-form');
+    if (dmSearchForm) {
+      dmSearchForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const val = document.getElementById('dm-search-input').value.trim();
+        if (val) window.location.href = '/dm/' + encodeURIComponent(val);
+      });
+    }
 
     // ==================== Voice Chat (WebRTC mesh) ====================
 

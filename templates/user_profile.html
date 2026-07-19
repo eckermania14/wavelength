@@ -126,6 +126,8 @@
 
       {% if is_me %}
         <a href="{{ url_for('profile') }}" class="edit-profile-link">✏️ Edit your profile</a>
+      {% else %}
+        <a href="{{ url_for('dm_with', username=profile_username) }}" class="btn btn-small" style="margin-top:16px;">✉️ Message</a>
       {% endif %}
 
       <br>

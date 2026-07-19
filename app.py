@@ -184,6 +184,8 @@ def init_db():
         ("owner", "ALTER TABLE rooms ADD COLUMN owner TEXT"),
         ("password_hash", "ALTER TABLE rooms ADD COLUMN password_hash TEXT"),
         ("background_image", "ALTER TABLE rooms ADD COLUMN background_image TEXT"),
+        ("dm_user_a", "ALTER TABLE rooms ADD COLUMN dm_user_a TEXT"),
+        ("dm_user_b", "ALTER TABLE rooms ADD COLUMN dm_user_b TEXT"),
     ]:
         if col not in existing_cols:
             db.execute(ddl)
@@ -253,10 +255,89 @@ def list_active_rooms():
     if not active_ids:
         return []
     placeholders = ",".join("?" for _ in active_ids)
-    rows = db.execute(f"SELECT * FROM rooms WHERE id IN ({placeholders})", active_ids).fetchall()
+    # Direct messages have their own sidebar list and shouldn't show up
+    # mixed in with public "active now" rooms.
+    rows = db.execute(
+        f"SELECT * FROM rooms WHERE id IN ({placeholders}) AND dm_user_a IS NULL", active_ids
+    ).fetchall()
     rows = [with_online_count(r) for r in rows]
     rows.sort(key=lambda r: r["online_count"], reverse=True)
     return rows
+
+
+# ==================== Direct messages ====================
+# A DM conversation is just a room row (so it reuses all the existing
+# join/leave/message/history/voice machinery) that's flagged with the two
+# participants' usernames instead of being featured or owned.
+
+def is_dm_room(room_row):
+    return bool(room_row["dm_user_a"])
+
+
+def dm_partner_username(room_row, username):
+    """Given a DM room and one of its participants, return the other one."""
+    if room_row["dm_user_a"] == username:
+        return room_row["dm_user_b"]
+    return room_row["dm_user_a"]
+
+
+def can_access_room(room_row, username):
+    """DMs are private to their two participants; regular rooms are open
+    to anyone (subject to the normal ban/password checks elsewhere)."""
+    if is_dm_room(room_row):
+        return username in (room_row["dm_user_a"], room_row["dm_user_b"])
+    return True
+
+
+def get_or_create_dm_room(user_a, user_b):
+    a, b = sorted([user_a, user_b], key=str.lower)
+    db = get_db()
+    row = db.execute(
+        "SELECT * FROM rooms WHERE dm_user_a = ? AND dm_user_b = ?", (a, b)
+    ).fetchone()
+    if row:
+        return row
+    name = f"dm-{uuid.uuid4().hex}"
+    db.execute(
+        "INSERT INTO rooms (name, description, featured, created_at, dm_user_a, dm_user_b) "
+        "VALUES (?, '', 0, ?, ?, ?)",
+        (name, datetime.now().isoformat(), a, b),
+    )
+    db.commit()
+    return db.execute(
+        "SELECT * FROM rooms WHERE dm_user_a = ? AND dm_user_b = ?", (a, b)
+    ).fetchone()
+
+
+def list_dm_conversations(username):
+    """Everyone this user has ever DM'd, most recently active first."""
+    db = get_db()
+    rows = db.execute(
+        "SELECT * FROM rooms WHERE dm_user_a = ? OR dm_user_b = ?", (username, username)
+    ).fetchall()
+
+    conversations = []
+    for r in rows:
+        other = dm_partner_username(r, username)
+        history = message_history.get(r["id"], [])
+        last = history[-1] if history else None
+        conversations.append({
+            "room_id": r["id"],
+            "username": other,
+            "avatar": get_user_avatar(other),
+            "online": other in room_users.get(r["id"], set()),
+            "last_message": (last["message"] if last and last.get("message") else
+                              ("📷 Image" if last and last.get("image_url") else "")),
+            "last_time": last["time"] if last else "",
+            "_sort": len(history) and 1 or 0,
+        })
+
+    # Conversations with messages float to the top (newest last message
+    # first); brand-new empty conversations trail behind, newest first.
+    conversations.sort(key=lambda c: (-c["_sort"], -c["room_id"]))
+    for c in conversations:
+        c.pop("_sort", None)
+    return conversations
 
 
 def with_online_count(room_row):
@@ -527,6 +608,7 @@ def index():
         featured_rooms=list_featured_rooms(),
         active_rooms=list_active_rooms(),
         custom_rooms=list_custom_rooms(q),
+        dm_conversations=list_dm_conversations(username),
         room_query=q,
         username=username,
         avatar_url=get_user_avatar(username),
@@ -545,16 +627,22 @@ def room(room_id):
 
     username = session.get("username")
 
-    if is_user_banned(room_id, username) and not is_room_owner(room_row, username):
+    if not can_access_room(room_row, username):
+        abort(403)
+
+    is_dm = is_dm_room(room_row)
+
+    if not is_dm and is_user_banned(room_id, username) and not is_room_owner(room_row, username):
         return redirect(url_for("index", banned_room=room_row["name"]))
 
-    if not room_is_unlocked_for_session(room_row, username):
+    if not is_dm and not room_is_unlocked_for_session(room_row, username):
         return redirect(url_for("room_join", room_id=room_id))
 
     history = message_history.get(room_id, [])
     online = online_users_with_avatars(room_id)
     is_owner = is_room_owner(room_row, username)
     is_moderator = can_moderate_room(room_row, username)
+    dm_partner = dm_partner_username(room_row, username) if is_dm else None
 
     return render_template(
         "room.html",
@@ -568,6 +656,10 @@ def room(room_id):
         history=history,
         online=online,
         active_rooms=list_active_rooms(),
+        dm_conversations=list_dm_conversations(username),
+        is_dm=is_dm,
+        dm_partner=dm_partner,
+        dm_partner_avatar=get_user_avatar(dm_partner) if dm_partner else None,
         is_owner=is_owner,
         is_moderator=is_moderator,
         moderators=list_room_moderators(room_id) if is_owner else [],
@@ -576,6 +668,39 @@ def room(room_id):
         settings_success=request.args.get("settings_success"),
         open_settings=request.args.get("open_settings"),
     )
+
+
+@app.route("/dm", methods=["POST"])
+@login_required
+def dm_start():
+    """Sidebar 'message a user' box: look up the username and jump into
+    (or create) the DM conversation with them."""
+    target = request.form.get("username", "").strip()
+    me = session["username"]
+    if not target:
+        return redirect(url_for("index"))
+    if target.lower() == me.lower():
+        return redirect(url_for("index", room_error="You can't message yourself."))
+    if not get_user_by_username(target):
+        return redirect(url_for("index", room_error=f"No user named '{target}'."))
+
+    room_row = get_or_create_dm_room(me, target)
+    return redirect(url_for("room", room_id=room_row["id"]))
+
+
+@app.route("/dm/<username>")
+@login_required
+def dm_with(username):
+    """Direct link into a DM conversation, e.g. from a profile page."""
+    me = session["username"]
+    username = username.strip()
+    if username.lower() == me.lower():
+        return redirect(url_for("index"))
+    if not get_user_by_username(username):
+        return redirect(url_for("index", room_error=f"No user named '{username}'."))
+
+    room_row = get_or_create_dm_room(me, username)
+    return redirect(url_for("room", room_id=room_row["id"]))
 
 
 @app.route("/r/<int:room_id>/join", methods=["GET", "POST"])
@@ -1178,7 +1303,9 @@ def handle_join(data):
     room_row = get_room(room_id)
     if room_row is None:
         return
-    if is_user_banned(room_id, username) and not is_room_owner(room_row, username):
+    if not can_access_room(room_row, username):
+        return
+    if not is_dm_room(room_row) and is_user_banned(room_id, username) and not is_room_owner(room_row, username):
         emit("banned", {"username": username})
         return
     join_room(str(room_id))
