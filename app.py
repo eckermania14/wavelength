@@ -233,6 +233,21 @@ def login_required(view):
     return wrapped
 
 
+def api_login_required(view):
+    """
+    Like login_required, but for JSON/fetch endpoints. Returns a JSON 401
+    instead of a 302 redirect to /login — fetch() follows redirects
+    transparently, so a redirect here would hand the caller an HTML login
+    page that res.json() then fails to parse.
+    """
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not session.get("username"):
+            return {"error": "Your session has expired. Please log in again."}, 401
+        return view(*args, **kwargs)
+    return wrapped
+
+
 def add_message(room_id, username, text, image_url=None):
     entry = {
         "username": username,
@@ -382,7 +397,7 @@ def profile():
 # ==================== Chat image upload ====================
 
 @app.route("/upload/chat-image", methods=["POST"])
-@login_required
+@api_login_required
 def upload_chat_image():
     file = request.files.get("image")
     rel_path, err = save_uploaded_image(file, CHAT_IMAGE_DIR, MAX_CHAT_IMAGE_DIMENSION)
