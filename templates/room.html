@@ -441,7 +441,7 @@
             {% if is_owner or is_moderator %}
               <button class="settings-btn" id="open-room-settings" title="Room settings">⚙️</button>
             {% endif %}
-            <button class="icon-btn" id="sidebar-toggle">☰</button>
+            <button class="icon-btn sidebar-toggle-btn" id="sidebar-toggle" title="Channels">☰</button>
             <button class="icon-btn roster-toggle" id="roster-toggle">👥</button>
             <a href="{{ url_for('index') }}" class="leave-link">Channels</a>
             <a href="{{ url_for('logout') }}" class="leave-link">Log out</a>
@@ -513,6 +513,7 @@
       </div>
     </main>
   </div>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
   <!-- Hidden container for remote voice audio streams -->
   <div id="voice-audio-container" style="display:none;"></div>
@@ -1015,6 +1016,44 @@
       const panel = document.getElementById('debug-panel');
       panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
     });
+
+    // Mobile sidebar toggle (channel/DM list)
+    const sidebarEl = document.getElementById('sidebar');
+    const sidebarToggleBtn = document.getElementById('sidebar-toggle');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+    function openSidebar() {
+      sidebarEl.classList.add('open');
+      sidebarBackdrop.classList.add('show');
+    }
+    function closeSidebar() {
+      sidebarEl.classList.remove('open');
+      sidebarBackdrop.classList.remove('show');
+    }
+
+    sidebarToggleBtn.addEventListener('click', () => {
+      sidebarEl.classList.contains('open') ? closeSidebar() : openSidebar();
+    });
+    sidebarBackdrop.addEventListener('click', closeSidebar);
+
+    // Mobile roster toggle (on-air list)
+    const rosterEl = document.getElementById('roster');
+    const rosterToggleBtn = document.getElementById('roster-toggle');
+    const rosterBackdrop = document.getElementById('roster-backdrop');
+
+    function openRoster() {
+      rosterEl.classList.add('open');
+      rosterBackdrop.classList.add('show');
+    }
+    function closeRoster() {
+      rosterEl.classList.remove('open');
+      rosterBackdrop.classList.remove('show');
+    }
+
+    rosterToggleBtn.addEventListener('click', () => {
+      rosterEl.classList.contains('open') ? closeRoster() : openRoster();
+    });
+    rosterBackdrop.addEventListener('click', closeRoster);
 
     scrollToBottom();
     logDebug('Room loaded');

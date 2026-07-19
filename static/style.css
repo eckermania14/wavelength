@@ -1115,7 +1115,7 @@ html, body.dashboard-body {
 }
 
 .active-list-wrap {
-  flex: 1;
+  margin-bottom: 28px;
 }
 
 /* ---- Direct messages ---- */
@@ -1208,6 +1208,17 @@ html, body.dashboard-body {
   margin-bottom: 36px;
 }
 
+.main-header-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+}
+
+.main-header-row .sidebar-toggle-btn {
+  margin-top: 4px;
+  flex-shrink: 0;
+}
+
 .main-header h1 {
   font-size: 30px;
   margin: 0 0 8px;
@@ -1296,9 +1307,38 @@ html, body.dashboard-body {
   font-size: 12px;
 }
 
+.sidebar-toggle-btn {
+  display: none;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
 @media (max-width: 900px) {
+  .sidebar-toggle-btn {
+    display: inline-flex;
+  }
   .sidebar {
     display: none;
+  }
+  .sidebar.open {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 30;
+    width: 82vw;
+    max-width: 320px;
+    box-shadow: var(--shadow-soft);
+  }
+  .sidebar-backdrop.show {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 25;
   }
 }
 

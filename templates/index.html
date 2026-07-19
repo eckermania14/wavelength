@@ -180,7 +180,7 @@
         <a class="rail-icon" href="{{ url_for('logout') }}" title="Log out">⏻</a>
       </div>
     </nav>
-    <aside class="sidebar">
+    <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="me">
           <span class="avatar avatar-static" id="me-avatar">
@@ -246,8 +246,13 @@
     </aside>
     <main class="main">
       <header class="main-header">
-        <h1>Tune in, {{ username }}</h1>
-        <p class="tagline">Pick a channel below, or search for one and hit enter to create it.</p>
+        <div class="main-header-row">
+          <button type="button" class="icon-btn sidebar-toggle-btn" id="sidebar-toggle" title="Channels">☰</button>
+          <div>
+            <h1>Tune in, {{ username }}</h1>
+            <p class="tagline">Pick a channel below, or search for one and hit enter to create it.</p>
+          </div>
+        </div>
       </header>
 
       {% if banned_room %}
@@ -302,6 +307,7 @@
       </section>
     </main>
   </div>
+  <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
 
   <!-- Create Room Modal -->
   <div class="modal-backdrop" id="create-room-backdrop">
@@ -405,6 +411,25 @@
       const val = document.getElementById('dm-search-input').value.trim();
       if (val) window.location.href = '/dm/' + encodeURIComponent(val);
     });
+
+    // Mobile sidebar toggle
+    const sidebarEl = document.getElementById('sidebar');
+    const sidebarToggleBtn = document.getElementById('sidebar-toggle');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+    function openSidebar() {
+      sidebarEl.classList.add('open');
+      sidebarBackdrop.classList.add('show');
+    }
+    function closeSidebar() {
+      sidebarEl.classList.remove('open');
+      sidebarBackdrop.classList.remove('show');
+    }
+
+    sidebarToggleBtn.addEventListener('click', () => {
+      sidebarEl.classList.contains('open') ? closeSidebar() : openSidebar();
+    });
+    sidebarBackdrop.addEventListener('click', closeSidebar);
   </script>
 </body>
 </html>
