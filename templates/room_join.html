@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>#{{ room.name }} is locked - Wavelength</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  .lock-shell {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+  }
+  .lock-card {
+    background: var(--panel-raised, #1e212b);
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 14px;
+    padding: 32px;
+    width: 100%;
+    max-width: 380px;
+    text-align: center;
+  }
+  .lock-icon { font-size: 32px; margin-bottom: 8px; }
+  .lock-card h1 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 20px;
+    margin: 0 0 4px;
+  }
+  .lock-card .sub {
+    color: var(--muted, #9195a4);
+    font-size: 13px;
+    margin: 0 0 22px;
+  }
+  .lock-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: left;
+  }
+  .lock-form input[type="password"] {
+    background: var(--panel, #171922);
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--fg, #e6e8ef);
+    font-size: 14px;
+  }
+  .lock-form button {
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: none;
+    background: var(--signal, #6fcf97);
+    color: #14161c;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .back-link {
+    display: inline-block;
+    margin-top: 20px;
+    font-size: 13px;
+    color: var(--muted, #9195a4);
+    text-decoration: none;
+  }
+  .back-link:hover { color: var(--fg, #e6e8ef); }
+</style>
+</head>
+<body class="dashboard-body">
+  <div class="lock-shell">
+    <div class="lock-card">
+      <div class="lock-icon">🔒</div>
+      <h1>#{{ room.name }} is locked</h1>
+      <p class="sub">This room needs a password to enter.</p>
+
+      {% if error %}<p class="error">{{ error }}</p>{% endif %}
+
+      <form class="lock-form" method="POST">
+        <input type="password" name="password" placeholder="Room password" required autofocus>
+        <button type="submit">Unlock</button>
+      </form>
+
+      <a href="{{ url_for('index') }}" class="back-link">← Back to channels</a>
+    </div>
+  </div>
+</body>
+</html>

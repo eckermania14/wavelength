@@ -108,13 +108,48 @@
     text-decoration: none;
   }
   .back-link:hover { color: var(--fg, #e6e8ef); }
+  .view-profile-link {
+    display: inline-block;
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--signal, #6fcf97);
+    text-decoration: none;
+  }
+  .view-profile-link:hover { text-decoration: underline; }
+  .field-label {
+    font-size: 12px;
+    color: var(--muted, #9195a4);
+    margin-bottom: 4px;
+    display: block;
+  }
+  textarea#bio-input {
+    width: 100%;
+    background: var(--panel, #171922);
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 8px;
+    padding: 10px 12px;
+    color: var(--fg, #e6e8ef);
+    font-family: inherit;
+    font-size: 13px;
+    resize: vertical;
+    min-height: 72px;
+    box-sizing: border-box;
+  }
+  .char-note {
+    text-align: right;
+    font-size: 11px;
+    color: var(--muted, #9195a4);
+    margin-top: 2px;
+  }
 </style>
 </head>
 <body class="dashboard-body">
   <div class="profile-shell">
     <div class="profile-card">
-      <h1>Profile picture</h1>
-      <p class="sub">Signed in as {{ username }}</p>
+      <h1>Edit profile</h1>
+      <p class="sub">Signed in as {{ username }}
+        · <a href="{{ url_for('user_profile', username=username) }}" class="view-profile-link">View your public profile</a>
+      </p>
 
       {% if error %}<div class="msg error">{{ error }}</div>{% endif %}
       {% if success %}<div class="msg success">{{ success }}</div>{% endif %}
@@ -131,9 +166,16 @@
         <label class="file-drop" id="file-drop">
           <span id="drop-label">Click to choose an image (PNG, JPG, GIF, WEBP)</span>
           <span class="file-name" id="file-name"></span>
-          <input type="file" name="avatar" id="avatar-input" accept="image/png,image/jpeg,image/gif,image/webp" required>
+          <input type="file" name="avatar" id="avatar-input" accept="image/png,image/jpeg,image/gif,image/webp">
         </label>
-        <button type="submit" id="submit-btn">Upload</button>
+
+        <div>
+          <label class="field-label" for="bio-input">Bio</label>
+          <textarea name="bio" id="bio-input" maxlength="{{ bio_max_len or 280 }}" placeholder="Tell people a little about yourself...">{{ bio or '' }}</textarea>
+          <div class="char-note"><span id="bio-count">{{ (bio or '')|length }}</span>/{{ bio_max_len or 280 }}</div>
+        </div>
+
+        <button type="submit" id="submit-btn">Save changes</button>
       </form>
 
       <a href="{{ url_for('index') }}" class="back-link">← Back to channels</a>
@@ -163,7 +205,13 @@
 
     form.addEventListener('submit', () => {
       submitBtn.disabled = true;
-      submitBtn.textContent = 'Uploading…';
+      submitBtn.textContent = 'Saving…';
+    });
+
+    const bioInput = document.getElementById('bio-input');
+    const bioCount = document.getElementById('bio-count');
+    bioInput.addEventListener('input', () => {
+      bioCount.textContent = bioInput.value.length;
     });
   </script>
 </body>

@@ -154,6 +154,188 @@
     z-index: 9999;
     display: none;
   }
+
+  {% if room_background %}
+  .messages {
+    background-image: linear-gradient(rgba(20,22,28,0.82), rgba(20,22,28,0.88)), url('{{ room_background }}');
+    background-size: cover;
+    background-position: center;
+  }
+  {% endif %}
+
+  .nick-link, .roster-link {
+    color: inherit;
+    text-decoration: none;
+  }
+  .nick-link:hover, .roster-link:hover {
+    text-decoration: underline;
+  }
+
+  .settings-btn {
+    background: none;
+    border: none;
+    font-size: 16px;
+    cursor: pointer;
+    color: var(--text-muted, #9195a4);
+    padding: 0 4px;
+  }
+  .settings-btn:hover { color: var(--amber, #f2a65a); }
+
+  /* Settings modal */
+  .modal-backdrop {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(10, 11, 15, 0.6);
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    padding: 20px;
+  }
+  .modal-backdrop.open { display: flex; }
+  .modal-card {
+    background: var(--panel-raised, #1e212b);
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 14px;
+    padding: 26px;
+    width: 100%;
+    max-width: 460px;
+    max-height: 88vh;
+    overflow-y: auto;
+  }
+  .modal-card h2 {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 18px;
+    margin: 0 0 14px;
+  }
+  .modal-close-x {
+    float: right;
+    background: none;
+    border: none;
+    color: var(--text-faint, #9195a4);
+    font-size: 18px;
+    cursor: pointer;
+    line-height: 1;
+  }
+  .modal-tabs {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 18px;
+    border-bottom: 1px solid var(--panel-line, #2a2d38);
+  }
+  .modal-tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted, #9195a4);
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 10px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .modal-tab-btn.active {
+    color: var(--amber, #f2a65a);
+    border-bottom-color: var(--amber, #f2a65a);
+  }
+  .modal-tab-panel { display: none; }
+  .modal-tab-panel.active { display: block; }
+  .modal-form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .modal-form label {
+    font-size: 12px;
+    color: var(--text-faint, #9195a4);
+    display: block;
+    margin-bottom: 4px;
+  }
+  .modal-form input[type="text"],
+  .modal-form input[type="password"],
+  .modal-form textarea {
+    width: 100%;
+    background: #171922;
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 8px;
+    padding: 9px 12px;
+    color: var(--fg, #e6e8ef);
+    font-family: inherit;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+  .modal-form textarea { resize: vertical; min-height: 60px; }
+  .checkbox-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted, #9195a4);
+  }
+  .checkbox-row input { width: auto; }
+  .modal-actions {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .modal-actions button, .inline-form button {
+    padding: 8px 16px;
+    border-radius: var(--radius-full, 999px);
+    border: none;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .modal-submit-btn { background: var(--signal, #6fcf97); color: #14161c; }
+  .danger-btn { background: #e2685f; color: #14161c; }
+  .neutral-btn { background: var(--panel-raised, #262a37); border: 1px solid var(--panel-line, #323647) !important; color: var(--fg, #e6e8ef); }
+
+  .settings-banner {
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+  }
+  .settings-banner.error { background: rgba(255, 143, 107, 0.15); color: #ff8f6b; }
+  .settings-banner.success { background: rgba(111, 207, 151, 0.15); color: #6fcf97; }
+
+  .person-list {
+    list-style: none;
+    margin: 0 0 16px;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .person-list li {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--panel, #171922);
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 8px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  .person-list .person-meta {
+    font-size: 11px;
+    color: var(--text-faint, #9195a4);
+  }
+  .inline-form { display: flex; gap: 8px; }
+  .inline-form input[type="text"] {
+    flex: 1;
+    background: #171922;
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--fg, #e6e8ef);
+    font-size: 13px;
+  }
+  .modal-sub {
+    font-size: 12px;
+    color: var(--text-faint, #9195a4);
+    margin: -8px 0 14px;
+  }
 </style>
 </head>
 <body class="dashboard-body">
@@ -225,6 +407,9 @@
           </div>
           <div class="header-actions">
             <span class="on-air"><span class="pulse"></span><span id="online-count">{{ online|length }}</span> on air</span>
+            {% if is_owner or is_moderator %}
+              <button class="settings-btn" id="open-room-settings" title="Room settings">⚙️</button>
+            {% endif %}
             <button class="icon-btn" id="sidebar-toggle">☰</button>
             <button class="icon-btn roster-toggle" id="roster-toggle">👥</button>
             <a href="{{ url_for('index') }}" class="leave-link">Channels</a>
@@ -250,12 +435,12 @@
             {% endif %}
             {% for m in history %}
               <div class="message {% if m.username == username %}mine{% endif %}">
-                <span class="avatar" data-username="{{ m.username }}">
+                <a class="avatar" data-username="{{ m.username }}" href="{{ url_for('user_profile', username=m.username) }}">
                   {% if m.avatar %}<img src="{{ m.avatar }}" alt="{{ m.username }}">{% else %}{{ m.username[0]|upper }}{% endif %}
-                </span>
+                </a>
                 <div class="bubble-col">
                   <span class="meta">
-                    <span class="nick" data-username="{{ m.username }}">{{ m.username }}</span>
+                    <a class="nick nick-link" data-username="{{ m.username }}" href="{{ url_for('user_profile', username=m.username) }}">{{ m.username }}</a>
                     <span class="time">{{ m.time }}</span>
                   </span>
                   {% if m.image_url %}
@@ -275,7 +460,7 @@
             <div class="roster-title">ON AIR</div>
             <ul id="online-list">
               {% for u in online %}
-                <li>{% if u.avatar %}<img src="{{ u.avatar }}" class="roster-avatar" alt="">{% endif %}{{ u.username }}</li>
+                <li><a href="{{ url_for('user_profile', username=u.username) }}" class="roster-link">{% if u.avatar %}<img src="{{ u.avatar }}" class="roster-avatar" alt="">{% endif %}{{ u.username }}</a></li>
               {% endfor %}
             </ul>
           </aside>
@@ -302,6 +487,103 @@
     <strong>🔧 Voice Debug Panel</strong><br><br>
     <div id="debug-log" style="font-family: monospace; line-height: 1.4; max-height: 350px; overflow-y: auto;"></div>
   </div>
+
+  {% if is_owner or is_moderator %}
+  <!-- Room Settings Modal -->
+  <div class="modal-backdrop" id="room-settings-backdrop">
+    <div class="modal-card">
+      <button type="button" class="modal-close-x" id="close-room-settings">✕</button>
+      <h2>Room settings — #{{ room.name }}</h2>
+
+      {% if settings_error %}<div class="settings-banner error">{{ settings_error }}</div>{% endif %}
+      {% if settings_success %}<div class="settings-banner success">{{ settings_success }}</div>{% endif %}
+
+      <div class="modal-tabs">
+        {% if is_owner %}
+          <button type="button" class="modal-tab-btn active" data-tab="general">General</button>
+          <button type="button" class="modal-tab-btn" data-tab="moderators">Moderators</button>
+        {% endif %}
+        <button type="button" class="modal-tab-btn {% if not is_owner %}active{% endif %}" data-tab="bans">Bans</button>
+      </div>
+
+      {% if is_owner %}
+      <div class="modal-tab-panel active" data-tab-panel="general">
+        <form class="modal-form" method="POST" action="{{ url_for('room_settings', room_id=room.id) }}" enctype="multipart/form-data">
+          <div>
+            <label for="settings-name">Name</label>
+            <input type="text" id="settings-name" name="name" maxlength="32" value="{{ room.name }}" required>
+          </div>
+          <div>
+            <label for="settings-description">Description</label>
+            <textarea id="settings-description" name="description" maxlength="280">{{ room.description }}</textarea>
+          </div>
+          <div>
+            <label for="settings-password">{% if room.password_hash %}Change password{% else %}Set a password{% endif %}</label>
+            <input type="password" id="settings-password" name="password" placeholder="Leave blank to keep current" autocomplete="new-password">
+            {% if room.password_hash %}
+              <label class="checkbox-row" style="margin-top:6px;">
+                <input type="checkbox" name="remove_password" value="1"> Remove password protection
+              </label>
+            {% endif %}
+          </div>
+          <div>
+            <label for="settings-background">Background image</label>
+            <input type="file" id="settings-background" name="background_image" accept="image/png,image/jpeg,image/gif,image/webp">
+            {% if room.background_image %}
+              <label class="checkbox-row" style="margin-top:6px;">
+                <input type="checkbox" name="remove_background" value="1"> Remove current background
+              </label>
+            {% endif %}
+          </div>
+          <div class="modal-actions">
+            <button type="submit" class="modal-submit-btn">Save changes</button>
+          </div>
+        </form>
+      </div>
+
+      <div class="modal-tab-panel" data-tab-panel="moderators">
+        <ul class="person-list">
+          {% for m in moderators %}
+            <li>
+              <span>{{ m.username }}</span>
+              <form method="POST" action="{{ url_for('room_moderators_remove', room_id=room.id) }}">
+                <input type="hidden" name="username" value="{{ m.username }}">
+                <button type="submit" class="danger-btn">Remove</button>
+              </form>
+            </li>
+          {% else %}
+            <li><span class="person-meta">No moderators yet.</span></li>
+          {% endfor %}
+        </ul>
+        <form class="inline-form" method="POST" action="{{ url_for('room_moderators_add', room_id=room.id) }}">
+          <input type="text" name="username" placeholder="Username to add as moderator" required>
+          <button type="submit" class="modal-submit-btn">Add</button>
+        </form>
+      </div>
+      {% endif %}
+
+      <div class="modal-tab-panel {% if not is_owner %}active{% endif %}" data-tab-panel="bans">
+        <ul class="person-list">
+          {% for b in bans %}
+            <li>
+              <span>{{ b.username }} <span class="person-meta">banned by {{ b.banned_by }}</span></span>
+              <form method="POST" action="{{ url_for('room_unban', room_id=room.id) }}">
+                <input type="hidden" name="username" value="{{ b.username }}">
+                <button type="submit" class="neutral-btn">Unban</button>
+              </form>
+            </li>
+          {% else %}
+            <li><span class="person-meta">No one is banned here.</span></li>
+          {% endfor %}
+        </ul>
+        <form class="inline-form" method="POST" action="{{ url_for('room_ban', room_id=room.id) }}">
+          <input type="text" name="username" placeholder="Username to ban" required>
+          <button type="submit" class="danger-btn">Ban</button>
+        </form>
+      </div>
+    </div>
+  </div>
+  {% endif %}
 
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script>
@@ -358,11 +640,16 @@
       messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
+    function profileUrl(uname) {
+      return '/u/' + encodeURIComponent(uname);
+    }
+
     function addMessage(entry, mine) {
       const div = document.createElement('div');
       div.className = 'message' + (mine ? ' mine' : '');
-      const avatar = document.createElement('span');
+      const avatar = document.createElement('a');
       avatar.className = 'avatar';
+      avatar.href = profileUrl(entry.username);
       if (entry.avatar) {
         const avatarImg = document.createElement('img');
         avatarImg.src = entry.avatar;
@@ -375,8 +662,9 @@
       col.className = 'bubble-col';
       const meta = document.createElement('span');
       meta.className = 'meta';
-      const nick = document.createElement('span');
-      nick.className = 'nick';
+      const nick = document.createElement('a');
+      nick.className = 'nick nick-link';
+      nick.href = profileUrl(entry.username);
       nick.textContent = entry.username;
       nick.dataset.username = entry.username;
       const time = document.createElement('span');
@@ -417,13 +705,17 @@
       ul.innerHTML = '';
       onlineList.forEach(u => {
         const li = document.createElement('li');
+        const link = document.createElement('a');
+        link.className = 'roster-link';
+        link.href = profileUrl(u.username);
         if (u.avatar) {
           const img = document.createElement('img');
           img.src = u.avatar;
           img.className = 'roster-avatar';
-          li.appendChild(img);
+          link.appendChild(img);
         }
-        li.appendChild(document.createTextNode(u.username));
+        link.appendChild(document.createTextNode(u.username));
+        li.appendChild(link);
         ul.appendChild(li);
       });
     }
@@ -665,6 +957,12 @@
     });
     socket.on('message', entry => addMessage(entry, entry.username === username));
     socket.on('roster', data => renderRoster(data.online));
+    socket.on('banned', data => {
+      if (data.username === username) {
+        alert("You've been banned from this room.");
+        window.location.href = '/';
+      }
+    });
 
     document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
     document.getElementById('mute-voice').addEventListener('click', toggleMute);
@@ -675,6 +973,38 @@
 
     scrollToBottom();
     logDebug('Room loaded');
+
+    // ==================== Room settings modal ====================
+
+    const settingsBackdrop = document.getElementById('room-settings-backdrop');
+    const openSettingsBtn = document.getElementById('open-room-settings');
+    if (settingsBackdrop && openSettingsBtn) {
+      const closeSettingsBtn = document.getElementById('close-room-settings');
+
+      function openSettingsModal() { settingsBackdrop.classList.add('open'); }
+      function closeSettingsModal() { settingsBackdrop.classList.remove('open'); }
+
+      openSettingsBtn.addEventListener('click', openSettingsModal);
+      closeSettingsBtn.addEventListener('click', closeSettingsModal);
+      settingsBackdrop.addEventListener('click', (e) => {
+        if (e.target === settingsBackdrop) closeSettingsModal();
+      });
+
+      const tabBtns = settingsBackdrop.querySelectorAll('.modal-tab-btn');
+      const tabPanels = settingsBackdrop.querySelectorAll('.modal-tab-panel');
+      tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+          tabBtns.forEach(b => b.classList.remove('active'));
+          tabPanels.forEach(p => p.classList.remove('active'));
+          btn.classList.add('active');
+          settingsBackdrop.querySelector(`[data-tab-panel="${btn.dataset.tab}"]`).classList.add('active');
+        });
+      });
+
+      {% if open_settings %}
+        openSettingsModal();
+      {% endif %}
+    }
   </script>
 </body>
 </html>
