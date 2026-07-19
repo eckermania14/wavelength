@@ -21,6 +21,12 @@
   .chat-body { flex: 1; display: flex; overflow: hidden; }
   .messages { background: #14161c; padding: 20px; flex: 1; overflow-y: auto; }
   
+  /* Hardcoded Custom Username Colors */
+  .nick[data-username="syphir"] { color: #ff4d4d !important; text-shadow: 0 0 8px #ff4d4d; }
+  .nick[data-username="lowcortisol"] { color: #ffa94d !important; text-shadow: 0 0 8px #ffd700; }
+  .nick[data-username="arika_62"] { color: #f046dc !important; text-shadow: 0 0 6px #00ff9d; }
+  .nick[data-username="admin"] { color: #ffd700 !important; text-shadow: 0 0 6px #ffd700; }
+
   /* Voice Chat UI */
   .voice-bar {
     background: var(--panel-raised);
@@ -40,7 +46,6 @@
   }
   .voice-btn.mic-on { background: #6fcf97; color: #14161c; }
   .voice-btn.mic-on.speaking { background: #ff8f6b; }
-  .voice-btn.muted { background: #ff8f6b; color: #14161c; }
 
   .voice-user {
     background: rgba(111, 207, 151, 0.2);
@@ -56,63 +61,6 @@
     right: -4px;
     top: -4px;
     font-size: 10px;
-  }
-
-  .avatar img {
-    width: 100%;
-    height: 100%;
-    border-radius: 50%;
-    object-fit: cover;
-    display: block;
-  }
-  .chat-image {
-    max-width: 280px;
-    max-height: 280px;
-    border-radius: 10px;
-    display: block;
-    margin-top: 4px;
-    cursor: pointer;
-  }
-  .attach-btn {
-    background: none;
-    border: none;
-    font-size: 18px;
-    cursor: pointer;
-    padding: 0 6px;
-    line-height: 1;
-  }
-  .attach-btn:disabled { opacity: 0.5; cursor: default; }
-  .roster-avatar {
-    width: 18px;
-    height: 18px;
-    border-radius: 50%;
-    object-fit: cover;
-    margin-right: 6px;
-    vertical-align: middle;
-  }
-  .edit-profile-link {
-    font-size: 11px;
-    color: var(--signal, #6fcf97);
-    text-decoration: none;
-    display: inline-block;
-    margin-top: 2px;
-  }
-  .edit-profile-link:hover { text-decoration: underline; }
-
-  #debug-panel {
-    position: fixed;
-    bottom: 10px;
-    right: 10px;
-    background: #1e212b;
-    border: 1px solid #ff8f6b;
-    padding: 12px;
-    border-radius: 8px;
-    font-size: 12px;
-    max-width: 320px;
-    max-height: 420px;
-    overflow-y: auto;
-    z-index: 9999;
-    display: none;
   }
 </style>
 </head>
@@ -130,13 +78,10 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="me">
-          <span class="avatar avatar-static">
-            {% if avatar_url %}<img src="{{ avatar_url }}" alt="{{ username }}">{% else %}{{ username[0]|upper }}{% endif %}
-          </span>
+          <span class="avatar avatar-static">{{ username[0]|upper }}</span>
           <div>
             <div class="me-name">{{ username }}</div>
             <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
-            <a href="{{ url_for('profile') }}" class="edit-profile-link">Edit profile picture</a>
           </div>
         </div>
       </div>
@@ -182,9 +127,7 @@
         <!-- Voice Bar -->
         <div class="voice-bar" id="voice-bar">
           <button id="toggle-voice" class="voice-btn">🎤 Join Voice</button>
-          <button id="mute-voice" class="voice-btn" style="display:none;">🔇 Mute</button>
           <div class="voice-users" id="voice-users"></div>
-          <button id="debug-toggle" style="margin-left:auto; font-size:11px; background:none; border:none; color:#9195a4;">Debug</button>
         </div>
 
         <div class="chat-body">
@@ -197,22 +140,13 @@
             {% endif %}
             {% for m in history %}
               <div class="message {% if m.username == username %}mine{% endif %}">
-                <span class="avatar" data-username="{{ m.username }}">
-                  {% if m.avatar %}<img src="{{ m.avatar }}" alt="{{ m.username }}">{% else %}{{ m.username[0]|upper }}{% endif %}
-                </span>
+                <span class="avatar" data-username="{{ m.username }}">{{ m.username[0]|upper }}</span>
                 <div class="bubble-col">
                   <span class="meta">
                     <span class="nick" data-username="{{ m.username }}">{{ m.username }}</span>
                     <span class="time">{{ m.time }}</span>
                   </span>
-                  {% if m.image_url %}
-                    <a href="{{ m.image_url }}" target="_blank" rel="noopener">
-                      <img class="chat-image" src="{{ m.image_url }}" alt="shared image">
-                    </a>
-                  {% endif %}
-                  {% if m.message %}
-                    <span class="bubble">{{ m.message }}</span>
-                  {% endif %}
+                  <span class="bubble">{{ m.message }}</span>
                 </div>
               </div>
             {% endfor %}
@@ -222,17 +156,13 @@
             <div class="roster-title">ON AIR</div>
             <ul id="online-list">
               {% for u in online %}
-                <li>{% if u.avatar %}<img src="{{ u.avatar }}" class="roster-avatar" alt="">{% endif %}{{ u.username }}</li>
+                <li>{{ u }}</li>
               {% endfor %}
             </ul>
           </aside>
         </div>
         <div class="typing-indicator" id="typing-indicator"></div>
-        
-        <!-- Message Form -->
         <form id="message-form" class="message-form">
-          <button type="button" id="attach-image-btn" class="attach-btn" title="Send an image">📷</button>
-          <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;">
           <input type="text" id="message-input" maxlength="1000" placeholder="Say something..." autocomplete="off" autofocus>
           <span class="char-counter" id="char-counter">1000</span>
           <button type="submit">Send</button>
@@ -241,68 +171,31 @@
     </main>
   </div>
 
-  <!-- Hidden container for remote voice audio streams -->
-  <div id="voice-audio-container" style="display:none;"></div>
-
-  <!-- Debug Panel -->
-  <div id="debug-panel">
-    <strong>🔧 Voice Debug Panel</strong><br><br>
-    <div id="debug-log" style="font-family: monospace; line-height: 1.4; max-height: 350px; overflow-y: auto;"></div>
-  </div>
-
   <script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
   <script>
     const roomId = {{ room.id|tojson }};
     const username = {{ username|tojson }};
     const socket = io();
 
-    // DOM Elements
     const messagesEl = document.getElementById('messages');
     const form = document.getElementById('message-form');
     const input = document.getElementById('message-input');
     const charCounterEl = document.getElementById('char-counter');
-    const onlineCountEl = document.getElementById('online-count');
 
-    const ICE_SERVERS = [
-      {
-        urls: "stun:stun.relay.metered.ca:80",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80",
-        username: "4057c5c9fa9016e31abaecc3",
-        credential: "ULeRBE7tyi15nbhV",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:80?transport=tcp",
-        username: "4057c5c9fa9016e31abaecc3",
-        credential: "ULeRBE7tyi15nbhV",
-      },
-      {
-        urls: "turn:global.relay.metered.ca:443",
-        username: "4057c5c9fa9016e31abaecc3",
-        credential: "ULeRBE7tyi15nbhV",
-      },
-      {
-        urls: "turns:global.relay.metered.ca:443?transport=tcp",
-        username: "4057c5c9fa9016e31abaecc3",
-        credential: "ULeRBE7tyi15nbhV",
-      },
-    ];
-
-    let localStream = null;
-    let peers = {}; // sid -> { pc: RTCPeerConnection, username, audioEl }
-    let isInVoice = false;
-    let isMuted = false;
-
-    function logDebug(msg) {
-      const log = document.getElementById('debug-log');
-      log.innerHTML += `<span style="color:#6fcf97">[${new Date().toLocaleTimeString()}]</span> ${msg}<br>`;
-      log.scrollTop = log.scrollHeight;
-      console.log("[Voice]", msg);
-    }
-
-    function scrollToBottom() {
-      messagesEl.scrollTop = messagesEl.scrollHeight;
+    function colorForName(name) {
+      const special = {
+        "syphir": "#ff4d4d",
+        "lowcortisol": "#ffa94d",
+        "arika_62": "#f046dc",
+        "admin": "#ffd700"
+      };
+      if (special[name.toLowerCase()]) return special[name.toLowerCase()];
+      let hash = 0;
+      for (let i = 0; i < name.length; i++) {
+        hash = name.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      const hue = Math.abs(hash) % 360;
+      return `hsl(${hue}, 75%, 65%)`;
     }
 
     function addMessage(entry, mine) {
@@ -310,14 +203,8 @@
       div.className = 'message' + (mine ? ' mine' : '');
       const avatar = document.createElement('span');
       avatar.className = 'avatar';
-      if (entry.avatar) {
-        const avatarImg = document.createElement('img');
-        avatarImg.src = entry.avatar;
-        avatarImg.alt = entry.username;
-        avatar.appendChild(avatarImg);
-      } else {
-        avatar.textContent = entry.username.charAt(0).toUpperCase();
-      }
+      avatar.textContent = entry.username.charAt(0).toUpperCase();
+      avatar.style.background = colorForName(entry.username);
       const col = document.createElement('div');
       col.className = 'bubble-col';
       const meta = document.createElement('span');
@@ -331,297 +218,35 @@
       time.textContent = entry.time;
       meta.appendChild(nick);
       meta.appendChild(time);
+      const bubble = document.createElement('span');
+      bubble.className = 'bubble';
+      bubble.textContent = entry.message;
       col.appendChild(meta);
-
-      if (entry.image_url) {
-        const link = document.createElement('a');
-        link.href = entry.image_url;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        const img = document.createElement('img');
-        img.className = 'chat-image';
-        img.src = entry.image_url;
-        img.alt = 'shared image';
-        link.appendChild(img);
-        col.appendChild(link);
-      }
-      if (entry.message) {
-        const bubble = document.createElement('span');
-        bubble.className = 'bubble';
-        bubble.textContent = entry.message;
-        col.appendChild(bubble);
-      }
-
+      col.appendChild(bubble);
       div.appendChild(avatar);
       div.appendChild(col);
       messagesEl.appendChild(div);
       scrollToBottom();
     }
 
-    function renderRoster(onlineList) {
-      onlineCountEl.textContent = onlineList.length;
-      const ul = document.getElementById('online-list');
-      ul.innerHTML = '';
-      onlineList.forEach(u => {
-        const li = document.createElement('li');
-        if (u.avatar) {
-          const img = document.createElement('img');
-          img.src = u.avatar;
-          img.className = 'roster-avatar';
-          li.appendChild(img);
-        }
-        li.appendChild(document.createTextNode(u.username));
-        ul.appendChild(li);
-      });
+    function scrollToBottom() {
+      messagesEl.scrollTop = messagesEl.scrollHeight;
     }
 
-    form.addEventListener('submit', function(e) {
+    form.addEventListener('submit', e => {
       e.preventDefault();
       const text = input.value.trim();
-      if (!text) return;
-
-      socket.emit('message', { room_id: roomId, message: text });
-      input.value = '';
-      charCounterEl.textContent = '1000';
-    });
-
-    // ==================== Voice Chat (WebRTC mesh) ====================
-
-    function renderVoiceUsers() {
-      const el = document.getElementById('voice-users');
-      const names = Object.values(peers).map(p => p.username);
-      el.innerHTML = '';
-      if (isInVoice) {
-        const me = document.createElement('span');
-        me.className = 'voice-user';
-        me.textContent = `${username} (you)`;
-        el.appendChild(me);
-      }
-      names.forEach(name => {
-        const span = document.createElement('span');
-        span.className = 'voice-user';
-        span.textContent = name;
-        el.appendChild(span);
-      });
-    }
-
-    function createPeerConnection(targetSid, targetUsername) {
-      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-
-      if (localStream) {
-        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
-      }
-
-      pc.onicecandidate = (event) => {
-        if (event.candidate) {
-          socket.emit('voice_ice', {
-            room_id: roomId,
-            target: targetSid,
-            candidate: event.candidate
-          });
-        }
-      };
-
-      pc.ontrack = (event) => {
-        let audioEl = document.getElementById(`voice-audio-${targetSid}`);
-        if (!audioEl) {
-          audioEl = document.createElement('audio');
-          audioEl.id = `voice-audio-${targetSid}`;
-          audioEl.autoplay = true;
-          document.getElementById('voice-audio-container').appendChild(audioEl);
-        }
-        audioEl.srcObject = event.streams[0];
-        logDebug(`Receiving audio from ${targetUsername}`);
-      };
-
-      pc.onconnectionstatechange = () => {
-        logDebug(`Connection to ${targetUsername}: ${pc.connectionState}`);
-        if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
-          removePeer(targetSid);
-        }
-      };
-
-      peers[targetSid] = { pc, username: targetUsername };
-      renderVoiceUsers();
-      return pc;
-    }
-
-    function removePeer(sid) {
-      const peer = peers[sid];
-      if (!peer) return;
-      peer.pc.close();
-      const audioEl = document.getElementById(`voice-audio-${sid}`);
-      if (audioEl) audioEl.remove();
-      delete peers[sid];
-      renderVoiceUsers();
-    }
-
-    const VOICE_FLAG_KEY = `wavelength_voice_active_${roomId}`;
-
-    async function joinVoice() {
-      try {
-        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      } catch (err) {
-        logDebug('Mic error: ' + err.message);
-        alert("Couldn't access your microphone: " + err.message);
-        sessionStorage.removeItem(VOICE_FLAG_KEY);
-        return;
-      }
-      isInVoice = true;
-      sessionStorage.setItem(VOICE_FLAG_KEY, '1');
-      const btn = document.getElementById('toggle-voice');
-      btn.textContent = '🎤 Leave Voice';
-      btn.classList.add('mic-on');
-      document.getElementById('mute-voice').style.display = 'inline-block';
-      renderVoiceUsers();
-      socket.emit('voice_join', { room_id: roomId });
-      logDebug('Joined voice chat');
-    }
-
-    function leaveVoice() {
-      sessionStorage.removeItem(VOICE_FLAG_KEY);
-      socket.emit('voice_leave', { room_id: roomId });
-      Object.keys(peers).forEach(sid => removePeer(sid));
-      if (localStream) {
-        localStream.getTracks().forEach(track => track.stop());
-        localStream = null;
-      }
-      isInVoice = false;
-      isMuted = false;
-      const btn = document.getElementById('toggle-voice');
-      btn.textContent = '🎤 Join Voice';
-      btn.classList.remove('mic-on');
-      const muteBtn = document.getElementById('mute-voice');
-      muteBtn.textContent = '🔇 Mute';
-      muteBtn.classList.remove('muted');
-      muteBtn.style.display = 'none';
-      renderVoiceUsers();
-      logDebug('Left voice chat');
-    }
-
-    function toggleVoice() {
-      if (!isInVoice) {
-        joinVoice();
-      } else {
-        leaveVoice();
-      }
-    }
-
-    function toggleMute() {
-      if (!localStream) return;
-      isMuted = !isMuted;
-      localStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
-      const muteBtn = document.getElementById('mute-voice');
-      muteBtn.textContent = isMuted ? '🔈 Unmute' : '🔇 Mute';
-      muteBtn.classList.toggle('muted', isMuted);
-      logDebug(isMuted ? 'Muted' : 'Unmuted');
-    }
-
-    // We just joined: told about everyone already in the voice room.
-    // We initiate offers to each of them.
-    socket.on('voice_peers', async ({ peers: existingPeers }) => {
-      for (const { username: peerUsername, sid } of existingPeers) {
-        const pc = createPeerConnection(sid, peerUsername);
-        const offer = await pc.createOffer();
-        await pc.setLocalDescription(offer);
-        socket.emit('voice_offer', { room_id: roomId, target: sid, offer });
-      }
-    });
-
-    // Someone new joined after us — just wait for their offer.
-    socket.on('voice_user_joined', (data) => {
-      logDebug(`${data.username} joined voice chat`);
-    });
-
-    socket.on('voice_user_left', ({ username: peerUsername, sid }) => {
-      logDebug(`${peerUsername} left voice chat`);
-      removePeer(sid);
-    });
-
-    socket.on('voice_offer', async ({ from, username: peerUsername, offer }) => {
-      let peer = peers[from];
-      let pc = peer ? peer.pc : createPeerConnection(from, peerUsername);
-      await pc.setRemoteDescription(new RTCSessionDescription(offer));
-      const answer = await pc.createAnswer();
-      await pc.setLocalDescription(answer);
-      socket.emit('voice_answer', { room_id: roomId, target: from, answer });
-    });
-
-    socket.on('voice_answer', async ({ from, answer }) => {
-      const peer = peers[from];
-      if (peer) await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
-    });
-
-    socket.on('voice_ice', async ({ from, candidate }) => {
-      const peer = peers[from];
-      if (peer && candidate) {
-        try {
-          await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
-        } catch (err) {
-          logDebug('ICE candidate error: ' + err.message);
-        }
-      }
-    });
-
-    window.addEventListener('beforeunload', () => {
-      if (isInVoice) socket.emit('voice_leave', { room_id: roomId });
-    });
-
-    // ==================== Image sharing ====================
-
-    const attachBtn = document.getElementById('attach-image-btn');
-    const imageInput = document.getElementById('image-input');
-
-    attachBtn.addEventListener('click', () => imageInput.click());
-
-    imageInput.addEventListener('change', async () => {
-      const file = imageInput.files[0];
-      if (!file) return;
-      attachBtn.disabled = true;
-      const originalLabel = attachBtn.textContent;
-      attachBtn.textContent = '⏳';
-      try {
-        const formData = new FormData();
-        formData.append('image', file);
-        const res = await fetch('/upload/chat-image', { method: 'POST', body: formData });
-        const data = await res.json();
-        if (!res.ok) {
-          alert(data.error || 'Upload failed.');
-          return;
-        }
-        const caption = input.value.trim();
-        socket.emit('message', { room_id: roomId, message: caption, image_url: data.url });
+      if (text) {
+        socket.emit('message', { room_id: roomId, message: text });
         input.value = '';
         charCounterEl.textContent = '1000';
-      } catch (err) {
-        alert('Upload failed: ' + err.message);
-      } finally {
-        attachBtn.disabled = false;
-        attachBtn.textContent = originalLabel;
-        imageInput.value = '';
       }
     });
 
-    // Socket Events
-    socket.on('connect', () => {
-      socket.emit('join', { room_id: roomId });
-      if (sessionStorage.getItem(VOICE_FLAG_KEY) === '1' && !isInVoice) {
-        logDebug('Rejoining voice chat after refresh...');
-        joinVoice();
-      }
-    });
+    socket.on('connect', () => socket.emit('join', { room_id: roomId }));
     socket.on('message', entry => addMessage(entry, entry.username === username));
-    socket.on('roster', data => renderRoster(data.online));
-
-    document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
-    document.getElementById('mute-voice').addEventListener('click', toggleMute);
-    document.getElementById('debug-toggle').addEventListener('click', () => {
-      const panel = document.getElementById('debug-panel');
-      panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
-    });
 
     scrollToBottom();
-    logDebug('Room loaded');
   </script>
 </body>
 </html>
