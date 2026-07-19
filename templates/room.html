@@ -40,6 +40,7 @@
   }
   .voice-btn.mic-on { background: #6fcf97; color: #14161c; }
   .voice-btn.mic-on.speaking { background: #ff8f6b; }
+  .voice-btn.muted { background: #ff8f6b; color: #14161c; }
 
   .voice-user {
     background: rgba(111, 207, 151, 0.2);
@@ -137,6 +138,7 @@
         <!-- Voice Bar -->
         <div class="voice-bar" id="voice-bar">
           <button id="toggle-voice" class="voice-btn">🎤 Join Voice</button>
+          <button id="mute-voice" class="voice-btn" style="display:none;">🔇 Mute</button>
           <div class="voice-users" id="voice-users"></div>
           <button id="debug-toggle" style="margin-left:auto; font-size:11px; background:none; border:none; color:#9195a4;">Debug</button>
         </div>
@@ -184,6 +186,9 @@
     </main>
   </div>
 
+  <!-- Hidden container for remote voice audio streams -->
+  <div id="voice-audio-container" style="display:none;"></div>
+
   <!-- Debug Panel -->
   <div id="debug-panel">
     <strong>🔧 Voice Debug Panel</strong><br><br>
@@ -203,11 +208,17 @@
     const charCounterEl = document.getElementById('char-counter');
     const onlineCountEl = document.getElementById('online-count');
 
+    const ICE_SERVERS = [
+      { urls: "stun:stun.l.google.com:19302" },
+      // For reliable connectivity behind restrictive/symmetric NATs (common on
+      // corporate/campus networks), add a TURN server here in production, e.g.:
+      // { urls: "turn:your-turn-server.com:3478", username: "user", credential: "pass" },
+    ];
+
     let localStream = null;
-    let peers = {};
+    let peers = {}; // sid -> { pc: RTCPeerConnection, username, audioEl }
     let isInVoice = false;
-    let voiceUsers = new Set();
-    let audioContext, analyser, dataArray;
+    let isMuted = false;
 
     function logDebug(msg) {
       const log = document.getElementById('debug-log');
@@ -250,7 +261,6 @@
       scrollToBottom();
     }
 
-    // FIXED FORM SUBMIT
     form.addEventListener('submit', function(e) {
       e.preventDefault();
       const text = input.value.trim();
@@ -261,37 +271,189 @@
       charCounterEl.textContent = '1000';
     });
 
-    // Voice Chat
-    async function toggleVoice() {
-      const btn = document.getElementById('toggle-voice');
-      if (!isInVoice) {
-        try {
-          localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
-          isInVoice = true;
-          btn.textContent = '🎤 Leave Voice';
-          btn.classList.add('mic-on');
-          socket.emit('voice_join', { room_id: roomId });
-          logDebug('Joined voice chat');
-        } catch (err) {
-          logDebug('Mic error: ' + err.message);
+    // ==================== Voice Chat (WebRTC mesh) ====================
+
+    function renderVoiceUsers() {
+      const el = document.getElementById('voice-users');
+      const names = Object.values(peers).map(p => p.username);
+      el.innerHTML = '';
+      if (isInVoice) {
+        const me = document.createElement('span');
+        me.className = 'voice-user';
+        me.textContent = `${username} (you)`;
+        el.appendChild(me);
+      }
+      names.forEach(name => {
+        const span = document.createElement('span');
+        span.className = 'voice-user';
+        span.textContent = name;
+        el.appendChild(span);
+      });
+    }
+
+    function createPeerConnection(targetSid, targetUsername) {
+      const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+
+      if (localStream) {
+        localStream.getTracks().forEach(track => pc.addTrack(track, localStream));
+      }
+
+      pc.onicecandidate = (event) => {
+        if (event.candidate) {
+          socket.emit('voice_ice', {
+            room_id: roomId,
+            target: targetSid,
+            candidate: event.candidate
+          });
         }
+      };
+
+      pc.ontrack = (event) => {
+        let audioEl = document.getElementById(`voice-audio-${targetSid}`);
+        if (!audioEl) {
+          audioEl = document.createElement('audio');
+          audioEl.id = `voice-audio-${targetSid}`;
+          audioEl.autoplay = true;
+          document.getElementById('voice-audio-container').appendChild(audioEl);
+        }
+        audioEl.srcObject = event.streams[0];
+        logDebug(`Receiving audio from ${targetUsername}`);
+      };
+
+      pc.onconnectionstatechange = () => {
+        logDebug(`Connection to ${targetUsername}: ${pc.connectionState}`);
+        if (['failed', 'disconnected', 'closed'].includes(pc.connectionState)) {
+          removePeer(targetSid);
+        }
+      };
+
+      peers[targetSid] = { pc, username: targetUsername };
+      renderVoiceUsers();
+      return pc;
+    }
+
+    function removePeer(sid) {
+      const peer = peers[sid];
+      if (!peer) return;
+      peer.pc.close();
+      const audioEl = document.getElementById(`voice-audio-${sid}`);
+      if (audioEl) audioEl.remove();
+      delete peers[sid];
+      renderVoiceUsers();
+    }
+
+    async function joinVoice() {
+      try {
+        localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      } catch (err) {
+        logDebug('Mic error: ' + err.message);
+        alert("Couldn't access your microphone: " + err.message);
+        return;
+      }
+      isInVoice = true;
+      const btn = document.getElementById('toggle-voice');
+      btn.textContent = '🎤 Leave Voice';
+      btn.classList.add('mic-on');
+      document.getElementById('mute-voice').style.display = 'inline-block';
+      renderVoiceUsers();
+      socket.emit('voice_join', { room_id: roomId });
+      logDebug('Joined voice chat');
+    }
+
+    function leaveVoice() {
+      socket.emit('voice_leave', { room_id: roomId });
+      Object.keys(peers).forEach(sid => removePeer(sid));
+      if (localStream) {
+        localStream.getTracks().forEach(track => track.stop());
+        localStream = null;
+      }
+      isInVoice = false;
+      isMuted = false;
+      const btn = document.getElementById('toggle-voice');
+      btn.textContent = '🎤 Join Voice';
+      btn.classList.remove('mic-on');
+      const muteBtn = document.getElementById('mute-voice');
+      muteBtn.textContent = '🔇 Mute';
+      muteBtn.classList.remove('muted');
+      muteBtn.style.display = 'none';
+      renderVoiceUsers();
+      logDebug('Left voice chat');
+    }
+
+    function toggleVoice() {
+      if (!isInVoice) {
+        joinVoice();
       } else {
-        if (localStream) localStream.getTracks().forEach(track => track.stop());
-        Object.values(peers).forEach(pc => pc.close());
-        peers = {};
-        isInVoice = false;
-        btn.textContent = '🎤 Join Voice';
-        btn.classList.remove('mic-on');
-        logDebug('Left voice chat');
+        leaveVoice();
       }
     }
+
+    function toggleMute() {
+      if (!localStream) return;
+      isMuted = !isMuted;
+      localStream.getAudioTracks().forEach(track => track.enabled = !isMuted);
+      const muteBtn = document.getElementById('mute-voice');
+      muteBtn.textContent = isMuted ? '🔈 Unmute' : '🔇 Mute';
+      muteBtn.classList.toggle('muted', isMuted);
+      logDebug(isMuted ? 'Muted' : 'Unmuted');
+    }
+
+    // We just joined: told about everyone already in the voice room.
+    // We initiate offers to each of them.
+    socket.on('voice_peers', async ({ peers: existingPeers }) => {
+      for (const { username: peerUsername, sid } of existingPeers) {
+        const pc = createPeerConnection(sid, peerUsername);
+        const offer = await pc.createOffer();
+        await pc.setLocalDescription(offer);
+        socket.emit('voice_offer', { room_id: roomId, target: sid, offer });
+      }
+    });
+
+    // Someone new joined after us — just wait for their offer.
+    socket.on('voice_user_joined', (data) => {
+      logDebug(`${data.username} joined voice chat`);
+    });
+
+    socket.on('voice_user_left', ({ username: peerUsername, sid }) => {
+      logDebug(`${peerUsername} left voice chat`);
+      removePeer(sid);
+    });
+
+    socket.on('voice_offer', async ({ from, username: peerUsername, offer }) => {
+      let peer = peers[from];
+      let pc = peer ? peer.pc : createPeerConnection(from, peerUsername);
+      await pc.setRemoteDescription(new RTCSessionDescription(offer));
+      const answer = await pc.createAnswer();
+      await pc.setLocalDescription(answer);
+      socket.emit('voice_answer', { room_id: roomId, target: from, answer });
+    });
+
+    socket.on('voice_answer', async ({ from, answer }) => {
+      const peer = peers[from];
+      if (peer) await peer.pc.setRemoteDescription(new RTCSessionDescription(answer));
+    });
+
+    socket.on('voice_ice', async ({ from, candidate }) => {
+      const peer = peers[from];
+      if (peer && candidate) {
+        try {
+          await peer.pc.addIceCandidate(new RTCIceCandidate(candidate));
+        } catch (err) {
+          logDebug('ICE candidate error: ' + err.message);
+        }
+      }
+    });
+
+    window.addEventListener('beforeunload', () => {
+      if (isInVoice) socket.emit('voice_leave', { room_id: roomId });
+    });
 
     // Socket Events
     socket.on('connect', () => socket.emit('join', { room_id: roomId }));
     socket.on('message', entry => addMessage(entry, entry.username === username));
-    socket.on('voice_user_joined', (data) => logDebug(`New voice user: ${data.username}`));
 
     document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
+    document.getElementById('mute-voice').addEventListener('click', toggleMute);
     document.getElementById('debug-toggle').addEventListener('click', () => {
       const panel = document.getElementById('debug-panel');
       panel.style.display = panel.style.display === 'block' ? 'none' : 'block';
