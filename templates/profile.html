@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Edit Profile - Wavelength</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+<style>
+  body.profile-body {
+    min-height: 100vh;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #14161c;
+  }
+  .profile-card {
+    background: #1a1c24;
+    border: 1px solid var(--panel-line, #262a35);
+    border-radius: 16px;
+    padding: 32px;
+    width: 100%;
+    max-width: 380px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+  }
+  .profile-card h1 {
+    font-family: "Space Grotesk", sans-serif;
+    font-size: 20px;
+    margin: 0 0 24px;
+    color: #f2f3f5;
+  }
+  .profile-avatar-preview {
+    width: 96px;
+    height: 96px;
+    border-radius: 50%;
+    background: #2a2e3a;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 36px;
+    font-weight: 600;
+    color: #9195a4;
+    margin: 0 auto 20px;
+    overflow: hidden;
+  }
+  .profile-avatar-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+  .profile-form { display: flex; flex-direction: column; gap: 14px; }
+  .file-picker-btn {
+    background: #262a35;
+    color: #f2f3f5;
+    border: 1px solid #343947;
+    border-radius: 8px;
+    padding: 10px;
+    text-align: center;
+    cursor: pointer;
+    font-size: 13px;
+    font-family: Inter, sans-serif;
+  }
+  .file-picker-btn:hover { background: #2f3441; }
+  input[type="file"] { display: none; }
+  #selected-filename {
+    font-size: 12px;
+    color: #9195a4;
+    text-align: center;
+    min-height: 16px;
+  }
+  .profile-submit {
+    background: #6fcf97;
+    color: #14161c;
+    border: none;
+    border-radius: 8px;
+    padding: 10px;
+    font-weight: 600;
+    cursor: pointer;
+    font-size: 14px;
+  }
+  .profile-submit:disabled { opacity: 0.6; cursor: default; }
+  .profile-message {
+    font-size: 13px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin-bottom: 14px;
+    text-align: center;
+  }
+  .profile-message.error { background: rgba(255, 143, 107, 0.15); color: #ff8f6b; }
+  .profile-message.success { background: rgba(111, 207, 151, 0.15); color: #6fcf97; }
+  .back-link {
+    display: block;
+    text-align: center;
+    margin-top: 20px;
+    font-size: 13px;
+    color: #9195a4;
+    text-decoration: none;
+  }
+  .back-link:hover { color: #f2f3f5; }
+  .profile-hint {
+    font-size: 11px;
+    color: #6b7080;
+    text-align: center;
+  }
+</style>
+</head>
+<body class="profile-body">
+  <div class="profile-card">
+    <h1>Edit profile picture</h1>
+
+    {% if error %}
+      <div class="profile-message error">{{ error }}</div>
+    {% endif %}
+    {% if success %}
+      <div class="profile-message success">{{ success }}</div>
+    {% endif %}
+
+    <div class="profile-avatar-preview" id="avatar-preview">
+      {% if avatar_url %}
+        <img src="{{ avatar_url }}" alt="{{ username }}">
+      {% else %}
+        {{ username[0]|upper }}
+      {% endif %}
+    </div>
+
+    <form class="profile-form" method="POST" enctype="multipart/form-data" id="profile-form">
+      <label class="file-picker-btn" for="avatar-input">Choose an image…</label>
+      <input type="file" id="avatar-input" name="avatar" accept="image/png,image/jpeg,image/gif,image/webp">
+      <div id="selected-filename"></div>
+      <button type="submit" class="profile-submit" id="profile-submit" disabled>Upload</button>
+      <div class="profile-hint">PNG, JPG, GIF, or WEBP. Max 8MB.</div>
+    </form>
+
+    <a href="{{ url_for('index') }}" class="back-link">← Back to channels</a>
+  </div>
+
+  <script>
+    const avatarInput = document.getElementById('avatar-input');
+    const selectedFilename = document.getElementById('selected-filename');
+    const submitBtn = document.getElementById('profile-submit');
+    const preview = document.getElementById('avatar-preview');
+
+    avatarInput.addEventListener('change', () => {
+      const file = avatarInput.files[0];
+      if (!file) {
+        submitBtn.disabled = true;
+        selectedFilename.textContent = '';
+        return;
+      }
+      submitBtn.disabled = false;
+      selectedFilename.textContent = file.name;
+
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        preview.innerHTML = `<img src="${e.target.result}" alt="preview">`;
+      };
+      reader.readAsDataURL(file);
+    });
+
+    document.getElementById('profile-form').addEventListener('submit', () => {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Uploading…';
+    });
+  </script>
+</body>
+</html>
