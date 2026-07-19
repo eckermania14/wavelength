@@ -2,7 +2,6 @@
 Simple chat website (inspired by y99.in) with real accounts.
 Users saved to users.json + admin broadcast support.
 """
-
 import sqlite3
 import secrets
 import json
@@ -33,11 +32,11 @@ typing_users = {}  # room_id -> set of typing usernames
 
 FEATURED_ROOMS = [
     ("Lobby", "Say hi and see who's around."),
-    ("Suggestions", "Suggest changes to the site."),  
+    ("Suggestions", "Suggest changes to the site."),
     ("Random", "Whatever's on your mind."),
     ("Tech", "Gadgets, code, and internet nonsense."),
     ("Music", "New releases and old favorites."),
-    ("Sports", "Games, scores, hot takes."),  
+    ("Sports", "Games, scores, hot takes."),
 ]
 
 
@@ -196,7 +195,6 @@ def register():
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
         confirm = request.form.get("confirm", "")
-
         error = None
         if len(username) <= USERNAME_MIN_LEN - 1:
             error = f"Username must be longer than {USERNAME_MIN_LEN - 1} characters."
@@ -215,7 +213,6 @@ def register():
         create_user(username, password)
         session["username"] = username
         return redirect(url_for("index"))
-
     return render_template("register.html")
 
 
@@ -224,16 +221,13 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-
         user = get_user_by_username(username)
         if not user or not check_password_hash(user["password_hash"], password):
             return render_template(
                 "login.html", error="Incorrect username or password.", username=username
             )
-
         session["username"] = username
         return redirect(url_for("index"))
-
     return render_template("login.html")
 
 
@@ -250,7 +244,6 @@ def index():
         name = request.form.get("room", "").strip()[:ROOM_NAME_MAX_LEN] or "Lobby"
         room = get_or_create_room(name)
         return redirect(url_for("room", room_id=room["id"]))
-
     return render_template(
         "index.html",
         featured_rooms=list_featured_rooms(),
@@ -265,7 +258,6 @@ def room(room_id):
     room_row = get_room(room_id)
     if room_row is None:
         abort(404)
-
     username = session["username"]
     history = message_history.get(room_id, [])
     online = sorted(room_users.get(room_id, set()))
@@ -285,7 +277,6 @@ def room(room_id):
 def admin_dashboard():
     if session.get("username") not in ["syphir", "admin"]:
         abort(403)
-    
     online_users = []
     for room_id, users in room_users.items():
         room = get_room(room_id)
@@ -296,11 +287,10 @@ def admin_dashboard():
                 "room_id": room_id,
                 "room_name": room_name
             })
-    
-    return render_template("admin.html", 
-                         username=session["username"],
-                         online_users=online_users,
-                         total_online=len(online_users))
+    return render_template("admin.html",
+                           username=session["username"],
+                           online_users=online_users,
+                           total_online=len(online_users))
 
 
 # Global notification
@@ -309,15 +299,12 @@ def admin_dashboard():
 def admin_notify():
     if session.get("username") not in ["syphir", "admin"]:
         abort(403)
-    
     title = request.form.get("title", "Server Notice")
     message = request.form.get("message", "Server maintenance in progress.")
-    
     socketio.emit('admin_notice', {
         "title": title,
         "message": message
     }, broadcast=True)
-    
     return redirect(url_for("admin_dashboard"))
 
 
@@ -327,10 +314,8 @@ def admin_notify():
 def admin_kick():
     if session.get("username") not in ["syphir", "admin"]:
         abort(403)
-    
     username = request.form.get("username")
     room_id = request.form.get("room_id")
-    
     if username and room_id:
         room_id = int(room_id)
         if username in room_users.get(room_id, set()):
@@ -339,48 +324,88 @@ def admin_kick():
                 "msg": f"{username} was kicked by admin.",
                 "type": "leave"
             }, room=str(room_id))
-    
     return redirect(url_for("admin_dashboard"))
 
 
 # ==================== VOICE CHAT SIGNALING ====================
 
-@socketio.on("voice_offer")
-def handle_voice_offer(data):
-    room_id = data.get("room_id")
-    target = data.get("target")
-    offer = data.get("offer")
-    username = session.get("username")
-    if room_id and target and offer and username:
-        emit("voice_offer", {"from": username, "offer": offer}, room=target)
+# room_id -> {username: sid}
+voice_room_users = {}
 
 
-@socketio.on("voice_answer")
-def handle_voice_answer(data):
-    room_id = data.get("room_id")
-    target = data.get("target")
-    answer = data.get("answer")
-    username = session.get("username")
-    if room_id and target and answer and username:
-        emit("voice_answer", {"from": username, "answer": answer}, room=target)
-
-
-@socketio.on("voice_ice")
-def handle_voice_ice(data):
-    room_id = data.get("room_id")
-    target = data.get("target")
-    candidate = data.get("candidate")
-    username = session.get("username")
-    if room_id and target and candidate and username:
-        emit("voice_ice", {"from": username, "candidate": candidate}, room=target)
+def _voice_leave_all(sid):
+    """Remove a disconnecting socket from every voice room it was in and notify peers."""
+    for room_id, users in list(voice_room_users.items()):
+        username = next((u for u, s in users.items() if s == sid), None)
+        if username:
+            users.pop(username, None)
+            emit("voice_user_left", {"username": username, "sid": sid},
+                 room=str(room_id), include_self=False)
+            if not users:
+                voice_room_users.pop(room_id, None)
 
 
 @socketio.on("voice_join")
 def handle_voice_join(data):
     room_id = data.get("room_id")
     username = session.get("username")
-    if room_id and username:
-        emit("voice_user_joined", {"username": username}, room=str(room_id), broadcast=True, include_self=False)
+    if room_id is None or not username:
+        return
+    room_id = int(room_id)
+    sid = request.sid
+
+    # Send the new joiner the list of peers already in the voice room
+    existing = voice_room_users.get(room_id, {})
+    emit("voice_peers", {
+        "peers": [{"username": u, "sid": s} for u, s in existing.items()]
+    })
+
+    # Register this user, then tell existing peers someone new arrived
+    voice_room_users.setdefault(room_id, {})[username] = sid
+    emit("voice_user_joined", {"username": username, "sid": sid},
+         room=str(room_id), include_self=False)
+
+
+@socketio.on("voice_leave")
+def handle_voice_leave(data):
+    room_id = data.get("room_id")
+    username = session.get("username")
+    if room_id is None or not username:
+        return
+    room_id = int(room_id)
+    voice_room_users.get(room_id, {}).pop(username, None)
+    if not voice_room_users.get(room_id):
+        voice_room_users.pop(room_id, None)
+    emit("voice_user_left", {"username": username, "sid": request.sid},
+         room=str(room_id), include_self=False)
+
+
+@socketio.on("voice_offer")
+def handle_voice_offer(data):
+    target = data.get("target")  # target's sid
+    offer = data.get("offer")
+    username = session.get("username")
+    if target and offer and username:
+        emit("voice_offer", {"from": request.sid, "username": username, "offer": offer},
+             room=target)
+
+
+@socketio.on("voice_answer")
+def handle_voice_answer(data):
+    target = data.get("target")
+    answer = data.get("answer")
+    username = session.get("username")
+    if target and answer and username:
+        emit("voice_answer", {"from": request.sid, "username": username, "answer": answer},
+             room=target)
+
+
+@socketio.on("voice_ice")
+def handle_voice_ice(data):
+    target = data.get("target")
+    candidate = data.get("candidate")
+    if target and candidate:
+        emit("voice_ice", {"from": request.sid, "candidate": candidate}, room=target)
 
 
 # Socket.IO Events
@@ -391,7 +416,6 @@ def handle_join(data):
     if room_id is None or not username:
         return
     room_id = int(room_id)
-
     join_room(str(room_id))
     room_users.setdefault(room_id, set()).add(username)
     emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
@@ -404,7 +428,6 @@ def handle_leave(data):
     if room_id is None or not username:
         return
     room_id = int(room_id)
-
     leave_room(str(room_id))
     room_users.get(room_id, set()).discard(username)
     emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
@@ -415,11 +438,9 @@ def handle_message(data):
     room_id = data.get("room_id")
     username = session.get("username")
     text = (data.get("message") or "").strip()[:1000]
-
     if room_id is None or not username or not text:
         return
     room_id = int(room_id)
-
     entry = add_message(room_id, username, text)
     emit("message", entry, room=str(room_id))
 
@@ -432,12 +453,10 @@ def handle_typing(data):
     if room_id is None or not username:
         return
     room_id = int(room_id)
-
     if is_typing:
         typing_users.setdefault(room_id, set()).add(username)
     else:
         typing_users.get(room_id, set()).discard(username)
-
     emit("typing", {
         "typingUsers": list(typing_users.get(room_id, set()))
     }, room=str(room_id))
@@ -445,7 +464,7 @@ def handle_typing(data):
 
 @socketio.on("disconnect")
 def handle_disconnect():
-    pass
+    _voice_leave_all(request.sid)
 
 
 # Initialize
