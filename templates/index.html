@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Wavelength</title>
+<link rel="icon" type="image/x-icon" href="favicon.ico">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -250,6 +251,7 @@
     <nav class="rail">
       <span class="rail-brand-dot"></span>
       <div class="rail-icons">
+        <button type="button" class="rail-icon mobile-sidebar-toggle" id="sidebar-toggle-btn" aria-label="Toggle channels" title="Channels">☰</button>
         <span class="rail-icon active" title="Chat">💬</span>
       </div>
       <div class="rail-icons rail-icons-bottom">
@@ -322,6 +324,7 @@
         {% endif %}
       </div>
     </aside>
+    <div class="sidebar-backdrop" id="sidebar-backdrop"></div>
     <main class="main">
       <header class="main-header">
         <h1>Tune in, {{ username }}</h1>
@@ -482,6 +485,20 @@
       e.preventDefault();
       const val = document.getElementById('dm-search-input').value.trim();
       if (val) window.location.href = '/dm/' + encodeURIComponent(val);
+    });
+    // Mobile sidebar toggle
+    const shellEl = document.querySelector('.shell');
+    const sidebarToggleBtn = document.getElementById('sidebar-toggle-btn');
+    const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+
+    function openSidebar() { shellEl.classList.add('sidebar-open'); }
+    function closeSidebar() { shellEl.classList.remove('sidebar-open'); }
+    function toggleSidebar() { shellEl.classList.toggle('sidebar-open'); }
+
+    sidebarToggleBtn.addEventListener('click', toggleSidebar);
+    sidebarBackdrop.addEventListener('click', closeSidebar);
+    window.addEventListener('resize', () => {
+      if (window.innerWidth > 900) closeSidebar();
     });
   </script>
 </body>
