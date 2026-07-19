@@ -113,14 +113,31 @@
     margin-right: 6px;
     vertical-align: middle;
   }
-  .edit-profile-link {
-    font-size: 11px;
-    color: var(--signal, #6fcf97);
+  .edit-profile-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-top: 8px;
+    padding: 7px 14px;
+
+    background: var(--amber-grad);
+    color: #23150a;
     text-decoration: none;
-    display: inline-block;
-    margin-top: 2px;
+    font-size: 12px;
+    font-weight: 600;
+    border-radius: var(--radius-full);
+
+    transition: transform .15s ease, filter .15s ease;
   }
-  .edit-profile-link:hover { text-decoration: underline; }
+
+  .edit-profile-btn:hover {
+    filter: brightness(1.06);
+    transform: translateY(-1px);
+  }
+
+  .edit-profile-btn:active {
+    transform: scale(.97);
+  }
 
   #debug-panel {
     position: fixed;
@@ -152,16 +169,29 @@
     </nav>
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
-        <div class="me">
-          <span class="avatar avatar-static">
-            {% if avatar_url %}<img src="{{ avatar_url }}" alt="{{ username }}">{% else %}{{ username[0]|upper }}{% endif %}
+        <div class="profile-card">
+
+          <span class="avatar avatar-static profile-avatar">
+            {% if avatar_url %}
+                <img src="{{ avatar_url }}" alt="{{ username }}">
+            {% else %}
+                {{ username[0]|upper }}
+            {% endif %}
           </span>
-          <div>
-            <div class="me-name">{{ username }}</div>
-            <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
-            <a href="{{ url_for('profile') }}" class="edit-profile-link">Edit profile picture</a>
+
+          <div class="profile-name">{{ username }}</div>
+
+          <div class="profile-status">
+            <span class="on-air live small"><span class="pulse"></span></span>
+            Online
           </div>
+
+          <a href="{{ url_for('profile') }}" class="edit-profile-btn">
+            ✏️ Edit Profile
+          </a>
+
         </div>
+      </div>
       </div>
       <form method="POST" action="{{ url_for('index') }}" class="sidebar-search">
         <input type="text" name="room" maxlength="32" placeholder="Search or create a channel">
