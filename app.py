@@ -6,16 +6,19 @@ import sqlite3
 import secrets
 import json
 import os
+import uuid
 from datetime import datetime
 from functools import wraps
 
 from flask import Flask, render_template, request, redirect, url_for, session, g, abort
 from flask_socketio import SocketIO, join_room, leave_room, emit
 from werkzeug.security import generate_password_hash, check_password_hash
+from PIL import Image, ImageOps
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = secrets.token_hex(16)
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode=None)
+app.config["MAX_CONTENT_LENGTH"] = 8 * 1024 * 1024  # 8 MB per request (image uploads)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 DB_PATH = "chat.db"
 USERS_JSON = "users.json"
@@ -23,6 +26,20 @@ USERS_JSON = "users.json"
 USERNAME_MIN_LEN = 5
 PASSWORD_MIN_LEN = 6
 ROOM_NAME_MAX_LEN = 32
+
+# ==================== Uploads (avatars + chat images) ====================
+# NOTE: on Railway, local disk storage is EPHEMERAL. Files saved here (and
+# users.json / chat.db) will be wiped on redeploy/restart unless you attach
+# a Railway Volume mounted over this directory (and the db/json paths).
+UPLOAD_ROOT = os.path.join("static", "uploads")
+AVATAR_DIR = os.path.join(UPLOAD_ROOT, "avatars")
+CHAT_IMAGE_DIR = os.path.join(UPLOAD_ROOT, "chat")
+os.makedirs(AVATAR_DIR, exist_ok=True)
+os.makedirs(CHAT_IMAGE_DIR, exist_ok=True)
+
+ALLOWED_IMAGE_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
+MAX_CHAT_IMAGE_DIMENSION = 1600  # px, longest side
+MAX_AVATAR_DIMENSION = 512
 
 # In-memory chat state
 MAX_HISTORY = 100
@@ -66,9 +83,59 @@ def get_user_by_username(username):
 def create_user(username, password):
     users_db[username] = {
         "password_hash": generate_password_hash(password),
-        "created_at": datetime.now().isoformat()
+        "created_at": datetime.now().isoformat(),
+        "avatar": None,
     }
     save_users(users_db)
+
+
+def get_user_avatar(username):
+    """Returns a URL for the user's avatar, or None if they haven't set one."""
+    user = get_user_by_username(username)
+    if user and user.get("avatar"):
+        return url_for("static", filename=user["avatar"])
+    return None
+
+
+# ==================== Image upload helpers ====================
+
+def allowed_image(filename):
+    return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
+
+
+def save_uploaded_image(file_storage, dest_dir, max_dimension, filename_prefix=""):
+    """
+    Validate, downscale, and save an uploaded image.
+    Returns (relative_static_path, error_message). Exactly one will be None.
+    """
+    if not file_storage or file_storage.filename == "":
+        return None, "No file selected."
+    if not allowed_image(file_storage.filename):
+        return None, "Unsupported file type. Use PNG, JPG, GIF, or WEBP."
+
+    try:
+        # Verify it's really an image (defends against renamed non-image files)
+        image = Image.open(file_storage.stream)
+        image.verify()
+        file_storage.stream.seek(0)
+        image = Image.open(file_storage.stream)
+        image = ImageOps.exif_transpose(image)  # respect camera rotation
+        if "A" in image.getbands():
+            image = image.convert("RGBA")
+        else:
+            image = image.convert("RGB")
+    except Exception:
+        return None, "That file doesn't look like a valid image."
+
+    image.thumbnail((max_dimension, max_dimension))
+    ext = "png" if image.mode == "RGBA" else "jpg"
+    fname = f"{filename_prefix}{uuid.uuid4().hex}.{ext}"
+    path = os.path.join(dest_dir, fname)
+    save_kwargs = {"quality": 85, "optimize": True} if ext == "jpg" else {"optimize": True}
+    image.save(path, **save_kwargs)
+
+    rel = os.path.relpath(path, "static").replace(os.sep, "/")
+    return rel, None
 
 
 # SQLite for Rooms
@@ -166,6 +233,11 @@ def with_online_count(room_row):
     return room
 
 
+def online_users_with_avatars(room_id):
+    names = sorted(room_users.get(room_id, set()))
+    return [{"username": u, "avatar": get_user_avatar(u)} for u in names]
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -175,10 +247,12 @@ def login_required(view):
     return wrapped
 
 
-def add_message(room_id, username, text):
+def add_message(room_id, username, text, image_url=None):
     entry = {
         "username": username,
         "message": text,
+        "image_url": image_url,
+        "avatar": get_user_avatar(username),
         "time": datetime.now().strftime("%H:%M"),
     }
     history = message_history.setdefault(room_id, [])
@@ -249,6 +323,7 @@ def index():
         featured_rooms=list_featured_rooms(),
         active_rooms=list_active_rooms(),
         username=session["username"],
+        avatar_url=get_user_avatar(session["username"]),
     )
 
 
@@ -260,15 +335,73 @@ def room(room_id):
         abort(404)
     username = session["username"]
     history = message_history.get(room_id, [])
-    online = sorted(room_users.get(room_id, set()))
+    online = online_users_with_avatars(room_id)
     return render_template(
         "room.html",
         room=room_row,
         username=username,
+        avatar_url=get_user_avatar(username),
         history=history,
         online=online,
         active_rooms=list_active_rooms(),
     )
+
+
+# ==================== Profile / avatar upload ====================
+
+@app.route("/profile", methods=["GET", "POST"])
+@login_required
+def profile():
+    username = session["username"]
+    error = None
+    success = None
+
+    if request.method == "POST":
+        file = request.files.get("avatar")
+        rel_path, err = save_uploaded_image(
+            file, AVATAR_DIR, MAX_AVATAR_DIMENSION, filename_prefix=f"{username}_"
+        )
+        if err:
+            error = err
+        else:
+            old = users_db.get(username, {}).get("avatar")
+            users_db.setdefault(username, {})["avatar"] = rel_path
+            save_users(users_db)
+            if old:
+                old_path = os.path.join("static", old)
+                if os.path.exists(old_path):
+                    try:
+                        os.remove(old_path)
+                    except OSError:
+                        pass
+            success = "Profile picture updated."
+
+    return render_template(
+        "profile.html",
+        username=username,
+        avatar_url=get_user_avatar(username),
+        error=error,
+        success=success,
+    )
+
+
+# ==================== Chat image upload ====================
+
+@app.route("/upload/chat-image", methods=["POST"])
+@login_required
+def upload_chat_image():
+    file = request.files.get("image")
+    rel_path, err = save_uploaded_image(file, CHAT_IMAGE_DIR, MAX_CHAT_IMAGE_DIMENSION)
+    if err:
+        return {"error": err}, 400
+    return {"url": url_for("static", filename=rel_path)}
+
+
+@app.errorhandler(413)
+def too_large(e):
+    if request.path.startswith("/upload/"):
+        return {"error": "File is too large (max 8MB)."}, 413
+    return "File is too large.", 413
 
 
 # Admin Dashboard
@@ -354,13 +487,11 @@ def handle_voice_join(data):
     room_id = int(room_id)
     sid = request.sid
 
-    # Send the new joiner the list of peers already in the voice room
     existing = voice_room_users.get(room_id, {})
     emit("voice_peers", {
         "peers": [{"username": u, "sid": s} for u, s in existing.items()]
     })
 
-    # Register this user, then tell existing peers someone new arrived
     voice_room_users.setdefault(room_id, {})[username] = sid
     emit("voice_user_joined", {"username": username, "sid": sid},
          room=str(room_id), include_self=False)
@@ -382,7 +513,7 @@ def handle_voice_leave(data):
 
 @socketio.on("voice_offer")
 def handle_voice_offer(data):
-    target = data.get("target")  # target's sid
+    target = data.get("target")
     offer = data.get("offer")
     username = session.get("username")
     if target and offer and username:
@@ -418,7 +549,7 @@ def handle_join(data):
     room_id = int(room_id)
     join_room(str(room_id))
     room_users.setdefault(room_id, set()).add(username)
-    emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
+    emit("roster", {"online": online_users_with_avatars(room_id)}, room=str(room_id))
 
 
 @socketio.on("leave")
@@ -430,7 +561,7 @@ def handle_leave(data):
     room_id = int(room_id)
     leave_room(str(room_id))
     room_users.get(room_id, set()).discard(username)
-    emit("roster", {"online": sorted(room_users.get(room_id, set()))}, room=str(room_id))
+    emit("roster", {"online": online_users_with_avatars(room_id)}, room=str(room_id))
 
 
 @socketio.on("message")
@@ -438,10 +569,16 @@ def handle_message(data):
     room_id = data.get("room_id")
     username = session.get("username")
     text = (data.get("message") or "").strip()[:1000]
-    if room_id is None or not username or not text:
+    image_url = data.get("image_url")
+
+    # Only accept image URLs that point at our own chat-upload directory
+    if image_url and not image_url.startswith(url_for("static", filename="uploads/chat/")):
+        image_url = None
+
+    if room_id is None or not username or (not text and not image_url):
         return
     room_id = int(room_id)
-    entry = add_message(room_id, username, text)
+    entry = add_message(room_id, username, text, image_url=image_url)
     emit("message", entry, room=str(room_id))
 
 
@@ -471,4 +608,5 @@ def handle_disconnect():
 init_db()
 
 if __name__ == "__main__":
-    socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
+    port = int(os.environ.get("PORT", 5000))
+    socketio.run(app, host="0.0.0.0", port=port, debug=False, allow_unsafe_werkzeug=True)
