@@ -58,6 +58,47 @@
     font-size: 10px;
   }
 
+  .avatar img {
+    width: 100%;
+    height: 100%;
+    border-radius: 50%;
+    object-fit: cover;
+    display: block;
+  }
+  .chat-image {
+    max-width: 280px;
+    max-height: 280px;
+    border-radius: 10px;
+    display: block;
+    margin-top: 4px;
+    cursor: pointer;
+  }
+  .attach-btn {
+    background: none;
+    border: none;
+    font-size: 18px;
+    cursor: pointer;
+    padding: 0 6px;
+    line-height: 1;
+  }
+  .attach-btn:disabled { opacity: 0.5; cursor: default; }
+  .roster-avatar {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    object-fit: cover;
+    margin-right: 6px;
+    vertical-align: middle;
+  }
+  .edit-profile-link {
+    font-size: 11px;
+    color: var(--signal, #6fcf97);
+    text-decoration: none;
+    display: inline-block;
+    margin-top: 2px;
+  }
+  .edit-profile-link:hover { text-decoration: underline; }
+
   #debug-panel {
     position: fixed;
     bottom: 10px;
@@ -89,10 +130,13 @@
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-header">
         <div class="me">
-          <span class="avatar avatar-static">{{ username[0]|upper }}</span>
+          <span class="avatar avatar-static">
+            {% if avatar_url %}<img src="{{ avatar_url }}" alt="{{ username }}">{% else %}{{ username[0]|upper }}{% endif %}
+          </span>
           <div>
             <div class="me-name">{{ username }}</div>
             <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
+            <a href="{{ url_for('profile') }}" class="edit-profile-link">Edit profile picture</a>
           </div>
         </div>
       </div>
@@ -153,13 +197,22 @@
             {% endif %}
             {% for m in history %}
               <div class="message {% if m.username == username %}mine{% endif %}">
-                <span class="avatar" data-username="{{ m.username }}">{{ m.username[0]|upper }}</span>
+                <span class="avatar" data-username="{{ m.username }}">
+                  {% if m.avatar %}<img src="{{ m.avatar }}" alt="{{ m.username }}">{% else %}{{ m.username[0]|upper }}{% endif %}
+                </span>
                 <div class="bubble-col">
                   <span class="meta">
                     <span class="nick" data-username="{{ m.username }}">{{ m.username }}</span>
                     <span class="time">{{ m.time }}</span>
                   </span>
-                  <span class="bubble">{{ m.message }}</span>
+                  {% if m.image_url %}
+                    <a href="{{ m.image_url }}" target="_blank" rel="noopener">
+                      <img class="chat-image" src="{{ m.image_url }}" alt="shared image">
+                    </a>
+                  {% endif %}
+                  {% if m.message %}
+                    <span class="bubble">{{ m.message }}</span>
+                  {% endif %}
                 </div>
               </div>
             {% endfor %}
@@ -169,7 +222,7 @@
             <div class="roster-title">ON AIR</div>
             <ul id="online-list">
               {% for u in online %}
-                <li>{{ u }}</li>
+                <li>{% if u.avatar %}<img src="{{ u.avatar }}" class="roster-avatar" alt="">{% endif %}{{ u.username }}</li>
               {% endfor %}
             </ul>
           </aside>
@@ -178,6 +231,8 @@
         
         <!-- Message Form -->
         <form id="message-form" class="message-form">
+          <button type="button" id="attach-image-btn" class="attach-btn" title="Send an image">📷</button>
+          <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;">
           <input type="text" id="message-input" maxlength="1000" placeholder="Say something..." autocomplete="off" autofocus>
           <span class="char-counter" id="char-counter">1000</span>
           <button type="submit">Send</button>
@@ -255,7 +310,14 @@
       div.className = 'message' + (mine ? ' mine' : '');
       const avatar = document.createElement('span');
       avatar.className = 'avatar';
-      avatar.textContent = entry.username.charAt(0).toUpperCase();
+      if (entry.avatar) {
+        const avatarImg = document.createElement('img');
+        avatarImg.src = entry.avatar;
+        avatarImg.alt = entry.username;
+        avatar.appendChild(avatarImg);
+      } else {
+        avatar.textContent = entry.username.charAt(0).toUpperCase();
+      }
       const col = document.createElement('div');
       col.className = 'bubble-col';
       const meta = document.createElement('span');
@@ -269,15 +331,48 @@
       time.textContent = entry.time;
       meta.appendChild(nick);
       meta.appendChild(time);
-      const bubble = document.createElement('span');
-      bubble.className = 'bubble';
-      bubble.textContent = entry.message;
       col.appendChild(meta);
-      col.appendChild(bubble);
+
+      if (entry.image_url) {
+        const link = document.createElement('a');
+        link.href = entry.image_url;
+        link.target = '_blank';
+        link.rel = 'noopener';
+        const img = document.createElement('img');
+        img.className = 'chat-image';
+        img.src = entry.image_url;
+        img.alt = 'shared image';
+        link.appendChild(img);
+        col.appendChild(link);
+      }
+      if (entry.message) {
+        const bubble = document.createElement('span');
+        bubble.className = 'bubble';
+        bubble.textContent = entry.message;
+        col.appendChild(bubble);
+      }
+
       div.appendChild(avatar);
       div.appendChild(col);
       messagesEl.appendChild(div);
       scrollToBottom();
+    }
+
+    function renderRoster(onlineList) {
+      onlineCountEl.textContent = onlineList.length;
+      const ul = document.getElementById('online-list');
+      ul.innerHTML = '';
+      onlineList.forEach(u => {
+        const li = document.createElement('li');
+        if (u.avatar) {
+          const img = document.createElement('img');
+          img.src = u.avatar;
+          img.className = 'roster-avatar';
+          li.appendChild(img);
+        }
+        li.appendChild(document.createTextNode(u.username));
+        ul.appendChild(li);
+      });
     }
 
     form.addEventListener('submit', function(e) {
@@ -361,15 +456,19 @@
       renderVoiceUsers();
     }
 
+    const VOICE_FLAG_KEY = `wavelength_voice_active_${roomId}`;
+
     async function joinVoice() {
       try {
         localStream = await navigator.mediaDevices.getUserMedia({ audio: true });
       } catch (err) {
         logDebug('Mic error: ' + err.message);
         alert("Couldn't access your microphone: " + err.message);
+        sessionStorage.removeItem(VOICE_FLAG_KEY);
         return;
       }
       isInVoice = true;
+      sessionStorage.setItem(VOICE_FLAG_KEY, '1');
       const btn = document.getElementById('toggle-voice');
       btn.textContent = '🎤 Leave Voice';
       btn.classList.add('mic-on');
@@ -380,6 +479,7 @@
     }
 
     function leaveVoice() {
+      sessionStorage.removeItem(VOICE_FLAG_KEY);
       socket.emit('voice_leave', { room_id: roomId });
       Object.keys(peers).forEach(sid => removePeer(sid));
       if (localStream) {
@@ -467,9 +567,51 @@
       if (isInVoice) socket.emit('voice_leave', { room_id: roomId });
     });
 
+    // ==================== Image sharing ====================
+
+    const attachBtn = document.getElementById('attach-image-btn');
+    const imageInput = document.getElementById('image-input');
+
+    attachBtn.addEventListener('click', () => imageInput.click());
+
+    imageInput.addEventListener('change', async () => {
+      const file = imageInput.files[0];
+      if (!file) return;
+      attachBtn.disabled = true;
+      const originalLabel = attachBtn.textContent;
+      attachBtn.textContent = '⏳';
+      try {
+        const formData = new FormData();
+        formData.append('image', file);
+        const res = await fetch('/upload/chat-image', { method: 'POST', body: formData });
+        const data = await res.json();
+        if (!res.ok) {
+          alert(data.error || 'Upload failed.');
+          return;
+        }
+        const caption = input.value.trim();
+        socket.emit('message', { room_id: roomId, message: caption, image_url: data.url });
+        input.value = '';
+        charCounterEl.textContent = '1000';
+      } catch (err) {
+        alert('Upload failed: ' + err.message);
+      } finally {
+        attachBtn.disabled = false;
+        attachBtn.textContent = originalLabel;
+        imageInput.value = '';
+      }
+    });
+
     // Socket Events
-    socket.on('connect', () => socket.emit('join', { room_id: roomId }));
+    socket.on('connect', () => {
+      socket.emit('join', { room_id: roomId });
+      if (sessionStorage.getItem(VOICE_FLAG_KEY) === '1' && !isInVoice) {
+        logDebug('Rejoining voice chat after refresh...');
+        joinVoice();
+      }
+    });
     socket.on('message', entry => addMessage(entry, entry.username === username));
+    socket.on('roster', data => renderRoster(data.online));
 
     document.getElementById('toggle-voice').addEventListener('click', toggleVoice);
     document.getElementById('mute-voice').addEventListener('click', toggleMute);
