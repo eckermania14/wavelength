@@ -2,6 +2,9 @@
 Simple chat website (inspired by y99.in) with real accounts.
 Users saved to users.json + admin broadcast support.
 """
+import eventlet
+eventlet.monkey_patch()
+
 import sqlite3
 import secrets
 import json
