@@ -148,7 +148,7 @@ form input[type="text"],
 form input[type="password"] {
   width: 100%;
   padding: 13px 16px;
-  font-size: 14px;
+  font-size: 16px;
   font-family: var(--font-body);
   background: var(--panel-raised);
   border: 1px solid var(--panel-line);
@@ -178,7 +178,7 @@ form button,
   padding: 13px;
   font-family: var(--font-display);
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16px;
   letter-spacing: 0.02em;
   background: var(--amber-grad);
   color: #23150a;
@@ -749,7 +749,7 @@ form button:active,
   color: var(--text);
   padding: 11px 16px;
   border-radius: 20px 20px 20px 8px;
-  font-size: 14px;
+  font-size: 16px;
   line-height: 1.5;
   word-wrap: break-word;
   white-space: pre-wrap;
@@ -863,7 +863,7 @@ form button:active,
 .message-form input {
   flex: 1;
   padding: 12px 18px;
-  font-size: 14px;
+  font-size: 16px;
   font-family: var(--font-body);
   background: var(--panel);
   border: 1px solid var(--panel-line);
