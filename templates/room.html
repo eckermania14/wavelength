@@ -142,7 +142,7 @@
           <div>
             <div class="me-name">{{ username }}</div>
             <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
-            <a href="{{ url_for('room') }}" class="edit-room-link">Edit room picture</a>
+            <a href="{{ url_for('room', room_id=room.id) }}" class="edit-room-link">Edit room picture</a>
           </div>
         </div>
       </div>
