@@ -25,6 +25,8 @@ USERNAME_MIN_LEN = 5
 PASSWORD_MIN_LEN = 6
 ROOM_NAME_MAX_LEN = 32
 
+ADMIN_USERS = {"syphir", "admin"}
+
 # In-memory state
 MAX_HISTORY = 100
 message_history = {}
@@ -224,6 +226,20 @@ def online_users_with_avatars(room_id):
     return [{"username": u, "avatar": get_user_avatar(u)} for u in names]
 
 
+def serialize_room(room_dict):
+    """room_dict is the output of with_online_count() (a plain dict)."""
+    return {
+        "id": room_dict["id"],
+        "name": room_dict["name"],
+        "description": room_dict.get("description", ""),
+        "online_count": room_dict.get("online_count", 0),
+    }
+
+
+def json_error(message, status=400):
+    return {"error": message}, status
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -413,12 +429,170 @@ def too_large(e):
     return "File is too large.", 413
 
 
-# ==================== Admin ====================
+# ==================== JSON API (for the desktop client) ====================
+# These sit alongside the existing server-rendered pages and change nothing
+# about the web UI. They exist because the desktop client can't parse
+# Jinja-rendered HTML the way a browser can.
+
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+
+    if len(username) < USERNAME_MIN_LEN:
+        return json_error(f"Username must be at least {USERNAME_MIN_LEN} characters.")
+    if not username.replace("_", "").isalnum():
+        return json_error("Username can only contain letters, numbers, and underscores.")
+    if len(password) < PASSWORD_MIN_LEN:
+        return json_error(f"Password must be at least {PASSWORD_MIN_LEN} characters.")
+    if get_user_by_username(username):
+        return json_error("Username already taken.")
+
+    create_user(username, password)
+    session["username"] = username
+    return {"username": username, "avatar_url": get_user_avatar(username)}
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    data = request.get_json(silent=True) or {}
+    username = (data.get("username") or "").strip()
+    password = data.get("password") or ""
+
+    user = get_user_by_username(username)
+    if not user or not check_password_hash(user["password_hash"], password):
+        return json_error("Incorrect username or password.", 401)
+
+    session["username"] = username
+    return {"username": username, "avatar_url": get_user_avatar(username), "is_admin": username in ADMIN_USERS}
+
+
+@app.route("/api/logout", methods=["POST"])
+def api_logout():
+    session.pop("username", None)
+    return {"ok": True}
+
+
+@app.route("/api/me")
+@api_login_required
+def api_me():
+    username = session["username"]
+    return {"username": username, "avatar_url": get_user_avatar(username), "is_admin": username in ADMIN_USERS}
+
+
+@app.route("/api/rooms")
+@api_login_required
+def api_rooms():
+    return {
+        "featured": [serialize_room(r) for r in list_featured_rooms()],
+        "active": [serialize_room(r) for r in list_active_rooms()],
+    }
+
+
+@app.route("/api/rooms", methods=["POST"])
+@api_login_required
+def api_create_room():
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()[:ROOM_NAME_MAX_LEN] or "Lobby"
+    room_row = get_or_create_room(name)
+    return serialize_room(with_online_count(room_row))
+
+
+@app.route("/api/rooms/<int:room_id>")
+@api_login_required
+def api_room_detail(room_id):
+    room_row = get_room(room_id)
+    if room_row is None:
+        return json_error("Room not found.", 404)
+    return {
+        "room": serialize_room(with_online_count(room_row)),
+        "history": message_history.get(room_id, []),
+        "online": online_users_with_avatars(room_id),
+    }
+
+
+@app.route("/api/profile/avatar", methods=["POST"])
+@api_login_required
+def api_profile_avatar():
+    username = session["username"]
+    file = request.files.get("avatar")
+    rel_path, err = save_uploaded_image(
+        file, AVATAR_DIR, MAX_AVATAR_DIMENSION, filename_prefix=f"{username}_"
+    )
+    if err:
+        return json_error(err)
+
+    old = users_db.get(username, {}).get("avatar")
+    users_db.setdefault(username, {})["avatar"] = rel_path
+    save_users(users_db)
+    if old:
+        old_path = os.path.join("static", old)
+        if os.path.exists(old_path):
+            try:
+                os.remove(old_path)
+            except OSError:
+                pass
+
+    return {"avatar_url": get_user_avatar(username)}
+
+
+@app.route("/api/admin/online")
+@api_login_required
+def api_admin_online():
+    if session["username"] not in ADMIN_USERS:
+        return json_error("Forbidden.", 403)
+    online_users = []
+    for rid, users in room_users.items():
+        if not users:
+            continue
+        room_row = get_room(rid)
+        room_name = room_row["name"] if room_row else "Unknown"
+        for u in sorted(users):
+            online_users.append({"username": u, "room_id": rid, "room_name": room_name})
+    return {"online_users": online_users, "total_online": len(online_users)}
+
+
+@app.route("/api/admin/notify", methods=["POST"])
+@api_login_required
+def api_admin_notify():
+    if session["username"] not in ADMIN_USERS:
+        return json_error("Forbidden.", 403)
+    data = request.get_json(silent=True) or {}
+    title = data.get("title") or "Server Notice"
+    message = (data.get("message") or "").strip()
+    if message:
+        socketio.emit("admin_notice", {"title": title, "message": message})
+    return {"ok": True}
+
+
+@app.route("/api/admin/kick", methods=["POST"])
+@api_login_required
+def api_admin_kick():
+    if session["username"] not in ADMIN_USERS:
+        return json_error("Forbidden.", 403)
+    data = request.get_json(silent=True) or {}
+    target_username = data.get("username")
+    room_id = data.get("room_id")
+    if target_username and room_id is not None:
+        room_id = int(room_id)
+        if target_username in room_users.get(room_id, set()):
+            room_users[room_id].discard(target_username)
+            socketio.emit(
+                "system",
+                {"msg": f"{target_username} was kicked by an admin.", "type": "leave"},
+                room=str(room_id),
+            )
+            socketio.emit("roster", {"online": online_users_with_avatars(room_id)}, room=str(room_id))
+    return {"ok": True}
+
+
+# ==================== Admin (web pages) ====================
 
 @app.route("/admin")
 @login_required
 def admin_dashboard():
-    if session.get("username") not in ["syphir", "admin"]:
+    if session.get("username") not in ADMIN_USERS:
         abort(403)
 
     online_users = []
@@ -441,7 +615,7 @@ def admin_dashboard():
 @app.route("/admin/notify", methods=["POST"])
 @login_required
 def admin_notify():
-    if session.get("username") not in ["syphir", "admin"]:
+    if session.get("username") not in ADMIN_USERS:
         abort(403)
     title = request.form.get("title", "Server Notice")
     message = request.form.get("message", "").strip()
@@ -453,7 +627,7 @@ def admin_notify():
 @app.route("/admin/kick", methods=["POST"])
 @login_required
 def admin_kick():
-    if session.get("username") not in ["syphir", "admin"]:
+    if session.get("username") not in ADMIN_USERS:
         abort(403)
     username = request.form.get("username")
     room_id = request.form.get("room_id")
@@ -471,21 +645,76 @@ def admin_kick():
 
 
 # ==================== Voice Signaling ====================
+# WebRTC mesh: every participant opens a direct RTCPeerConnection to every
+# other participant in the same room. This server only relays signaling
+# messages (SDP offers/answers, ICE candidates) between sids — it never
+# touches the audio itself.
+#
+# Protocol (mirrors what room.html's client-side JS expects):
+#   client -> server: voice_join  {room_id}
+#   server -> joiner:  voice_peers {peers: [{username, sid}, ...]}   (existing participants)
+#   server -> others:  voice_user_joined {username, sid}             (the new joiner)
+#   client -> server: voice_offer/voice_answer/voice_ice {room_id, target: <sid>, ...}
+#   server -> target:  voice_offer/voice_answer/voice_ice {from: <sid>, username, ...}
+#   client -> server: voice_leave {room_id}
+#   server -> others:  voice_user_left {username, sid}
+
+# room_id -> {username: sid}
+voice_room_users = {}
+
+
+def _voice_leave(room_id, username, sid):
+    users = voice_room_users.get(room_id)
+    if not users or users.get(username) != sid:
+        return
+    users.pop(username, None)
+    if not users:
+        voice_room_users.pop(room_id, None)
+    emit("voice_user_left", {"username": username, "sid": sid}, room=str(room_id), include_self=False)
+
+
+@socketio.on("voice_join")
+def handle_voice_join(data):
+    room_id = data.get("room_id")
+    username = session.get("username")
+    if room_id is None or not username:
+        return
+    room_id = int(room_id)
+    sid = request.sid
+
+    # Tell the joiner who's already here so *they* initiate offers to each peer.
+    existing = voice_room_users.get(room_id, {})
+    emit("voice_peers", {"peers": [{"username": u, "sid": s} for u, s in existing.items()]})
+
+    voice_room_users.setdefault(room_id, {})[username] = sid
+    emit("voice_user_joined", {"username": username, "sid": sid}, room=str(room_id), include_self=False)
+
+
+@socketio.on("voice_leave")
+def handle_voice_leave(data):
+    room_id = data.get("room_id")
+    username = session.get("username")
+    if room_id is None or not username:
+        return
+    _voice_leave(int(room_id), username, request.sid)
+
 
 @socketio.on("voice_offer")
 def handle_voice_offer(data):
     target = data.get("target")
     offer = data.get("offer")
-    if target and offer:
-        emit("voice_offer", {"from": session.get("username"), "offer": offer}, room=target)
+    username = session.get("username")
+    if target and offer and username:
+        emit("voice_offer", {"from": request.sid, "username": username, "offer": offer}, room=target)
 
 
 @socketio.on("voice_answer")
 def handle_voice_answer(data):
     target = data.get("target")
     answer = data.get("answer")
-    if target and answer:
-        emit("voice_answer", {"from": session.get("username"), "answer": answer}, room=target)
+    username = session.get("username")
+    if target and answer and username:
+        emit("voice_answer", {"from": request.sid, "username": username, "answer": answer}, room=target)
 
 
 @socketio.on("voice_ice")
@@ -493,14 +722,7 @@ def handle_voice_ice(data):
     target = data.get("target")
     candidate = data.get("candidate")
     if target and candidate:
-        emit("voice_ice", {"from": session.get("username"), "candidate": candidate}, room=target)
-
-
-@socketio.on("voice_join")
-def handle_voice_join(data):
-    username = session.get("username")
-    if username:
-        emit("voice_user_joined", {"username": username}, broadcast=True, include_self=False)
+        emit("voice_ice", {"from": request.sid, "candidate": candidate}, room=target)
 
 
 # ==================== Standard Chat Events ====================
@@ -531,14 +753,20 @@ def handle_leave(data):
 
 @socketio.on("disconnect")
 def handle_disconnect():
-    """Make sure a user disappears from every room's roster when their socket drops."""
+    """Clean up both the chat roster and any voice session when a socket drops."""
     username = session.get("username")
     if not username:
         return
+    sid = request.sid
+
     for room_id, users in list(room_users.items()):
         if username in users:
             users.discard(username)
             emit("roster", {"online": online_users_with_avatars(room_id)}, room=str(room_id))
+
+    for room_id, users in list(voice_room_users.items()):
+        if users.get(username) == sid:
+            _voice_leave(room_id, username, sid)
 
 
 @socketio.on("message")
