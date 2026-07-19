@@ -4,3 +4,4 @@ python-socketio==5.11.2
 python-engineio==4.9.0
 Pillow
 eventlet
+gevent
