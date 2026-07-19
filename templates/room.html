@@ -96,14 +96,14 @@
     margin-right: 6px;
     vertical-align: middle;
   }
-  .edit-profile-link {
+  .edit-room-link {
     font-size: 11px;
     color: var(--signal, #6fcf97);
     text-decoration: none;
     display: inline-block;
     margin-top: 2px;
   }
-  .edit-profile-link:hover { text-decoration: underline; }
+  .edit-room-link:hover { text-decoration: underline; }
 
   #debug-panel {
     position: fixed;
@@ -142,7 +142,7 @@
           <div>
             <div class="me-name">{{ username }}</div>
             <div class="me-status"><span class="on-air live small"><span class="pulse"></span></span>online</div>
-            <a href="{{ url_for('profile') }}" class="edit-profile-link">Edit profile picture</a>
+            <a href="{{ url_for('room') }}" class="edit-room-link">Edit room picture</a>
           </div>
         </div>
       </div>
