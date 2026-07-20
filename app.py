@@ -10,6 +10,10 @@ from flask import Flask, render_template, request, redirect, url_for, session, g
 from flask_socketio import SocketIO, join_room, leave_room, emit
 from werkzeug.security import generate_password_hash, check_password_hash
 from PIL import Image, ImageOps
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+import base64
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = secrets.token_hex(16)
@@ -20,6 +24,9 @@ socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 DB_PATH = "chat.db"
 USERS_JSON = "users.json"
+MESSAGES_DB_PATH = "messages.db"
+MESSAGES_KEY_PATH = "messages.key"
+MESSAGES_SALT_PATH = "messages.salt"
 
 USERNAME_MIN_LEN = 5
 PASSWORD_MIN_LEN = 6
@@ -152,6 +159,119 @@ def save_uploaded_image(file_storage, dest_dir, max_dimension, filename_prefix="
     return rel, None
 
 
+# ==================== Encrypted message history (messages.db) ====================
+# Chat rooms/DMs normally only keep messages in memory (see message_history
+# below), so they vanish on restart. When a room/DM owner opts in via the
+# "Store message history" setting, messages are additionally persisted here,
+# encrypted at rest with AES-128-CBC + HMAC-SHA256 (Fernet), keyed by a
+# secret that never itself touches messages.db.
+
+def _load_or_create_message_secret():
+    """A random 256-bit secret, generated once and stored outside messages.db,
+    locked to owner-only file permissions. Losing this file makes all
+    persisted history permanently unreadable, which is the point."""
+    if os.path.exists(MESSAGES_KEY_PATH):
+        with open(MESSAGES_KEY_PATH, "rb") as f:
+            return f.read().strip()
+    secret = base64.urlsafe_b64encode(os.urandom(32))
+    with open(MESSAGES_KEY_PATH, "wb") as f:
+        f.write(secret)
+    try:
+        os.chmod(MESSAGES_KEY_PATH, 0o600)
+    except OSError:
+        pass
+    return secret
+
+
+def _load_or_create_message_salt():
+    if os.path.exists(MESSAGES_SALT_PATH):
+        with open(MESSAGES_SALT_PATH, "rb") as f:
+            return f.read()
+    salt = os.urandom(16)
+    with open(MESSAGES_SALT_PATH, "wb") as f:
+        f.write(salt)
+    try:
+        os.chmod(MESSAGES_SALT_PATH, 0o600)
+    except OSError:
+        pass
+    return salt
+
+
+def _build_message_fernet():
+    """Runs the raw secret through PBKDF2-HMAC-SHA256 (390k iterations) before
+    handing it to Fernet, so the key actually used for AES/HMAC is a stretched
+    derivation rather than the stored bytes themselves."""
+    secret = _load_or_create_message_secret()
+    salt = _load_or_create_message_salt()
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=390_000)
+    derived_key = base64.urlsafe_b64encode(kdf.derive(secret))
+    return Fernet(derived_key)
+
+
+_message_fernet = _build_message_fernet()
+
+
+def init_messages_db():
+    db = sqlite3.connect(MESSAGES_DB_PATH)
+    db.execute("""
+        CREATE TABLE IF NOT EXISTS messages (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            room_id INTEGER NOT NULL,
+            ciphertext BLOB NOT NULL,
+            created_at TEXT NOT NULL
+        )
+    """)
+    db.execute("CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id)")
+    db.commit()
+    db.close()
+
+
+def persist_message(room_id, entry):
+    """Encrypts one chat message (username, text, image_url, avatar, time) as
+    a single opaque blob and appends it to messages.db. Only ever called for
+    rooms/DMs that have history storage enabled."""
+    plaintext = json.dumps(entry).encode("utf-8")
+    ciphertext = _message_fernet.encrypt(plaintext)
+    db = sqlite3.connect(MESSAGES_DB_PATH)
+    db.execute(
+        "INSERT INTO messages (room_id, ciphertext, created_at) VALUES (?, ?, ?)",
+        (room_id, ciphertext, datetime.now().isoformat()),
+    )
+    db.commit()
+    db.close()
+
+
+def load_persisted_history(room_id, limit=None):
+    """Decrypts and returns the stored history for a room, oldest first."""
+    db = sqlite3.connect(MESSAGES_DB_PATH)
+    if limit:
+        rows = db.execute(
+            "SELECT ciphertext FROM messages WHERE room_id = ? ORDER BY id DESC LIMIT ?",
+            (room_id, limit),
+        ).fetchall()
+        rows = list(reversed(rows))
+    else:
+        rows = db.execute(
+            "SELECT ciphertext FROM messages WHERE room_id = ? ORDER BY id ASC", (room_id,)
+        ).fetchall()
+    db.close()
+
+    entries = []
+    for (ciphertext,) in rows:
+        try:
+            entries.append(json.loads(_message_fernet.decrypt(ciphertext).decode("utf-8")))
+        except Exception:
+            continue  # skip anything that fails to decrypt/parse rather than crash the page
+    return entries
+
+
+def clear_persisted_history(room_id):
+    db = sqlite3.connect(MESSAGES_DB_PATH)
+    db.execute("DELETE FROM messages WHERE room_id = ?", (room_id,))
+    db.commit()
+    db.close()
+
+
 def get_db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -186,6 +306,7 @@ def init_db():
         ("background_image", "ALTER TABLE rooms ADD COLUMN background_image TEXT"),
         ("dm_user_a", "ALTER TABLE rooms ADD COLUMN dm_user_a TEXT"),
         ("dm_user_b", "ALTER TABLE rooms ADD COLUMN dm_user_b TEXT"),
+        ("history_enabled", "ALTER TABLE rooms ADD COLUMN history_enabled INTEGER NOT NULL DEFAULT 0"),
     ]:
         if col not in existing_cols:
             db.execute(ddl)
@@ -320,6 +441,8 @@ def list_dm_conversations(username):
     for r in rows:
         other = dm_partner_username(r, username)
         history = message_history.get(r["id"], [])
+        if not history and r["history_enabled"]:
+            history = load_persisted_history(r["id"], limit=1)
         last = history[-1] if history else None
         conversations.append({
             "room_id": r["id"],
@@ -402,6 +525,14 @@ def is_room_moderator(room_id, username):
 
 def can_moderate_room(room_row, username):
     return is_room_owner(room_row, username) or is_room_moderator(room_row["id"], username)
+
+
+def can_change_history_setting(room_row, username):
+    """DMs: either participant can toggle history storage for their own
+    conversation. Regular rooms: only the owner and moderators can."""
+    if is_dm_room(room_row):
+        return can_access_room(room_row, username)
+    return can_moderate_room(room_row, username)
 
 
 def list_room_moderators(room_id):
@@ -490,6 +621,7 @@ def serialize_room(room_dict):
         "online_count": room_dict.get("online_count", 0),
         "owner": room_dict.get("owner"),
         "has_password": bool(room_dict.get("password_hash")),
+        "history_enabled": bool(room_dict.get("history_enabled")),
         "background_image": (
             url_for("static", filename=room_dict["background_image"])
             if room_dict.get("background_image") else None
@@ -525,7 +657,7 @@ def api_login_required(view):
     return wrapped
 
 
-def add_message(room_id, username, text, image_url=None):
+def add_message(room_id, username, text, image_url=None, history_enabled=False):
     entry = {
         "username": username,
         "message": text,
@@ -537,6 +669,8 @@ def add_message(room_id, username, text, image_url=None):
     history.append(entry)
     if len(history) > MAX_HISTORY:
         del history[:len(history) - MAX_HISTORY]
+    if history_enabled:
+        persist_message(room_id, entry)
     return entry
 
 
@@ -638,7 +772,10 @@ def room(room_id):
     if not is_dm and not room_is_unlocked_for_session(room_row, username):
         return redirect(url_for("room_join", room_id=room_id))
 
-    history = message_history.get(room_id, [])
+    if room_row["history_enabled"]:
+        history = load_persisted_history(room_id, limit=MAX_HISTORY)
+    else:
+        history = message_history.get(room_id, [])
     online = online_users_with_avatars(room_id)
     is_owner = is_room_owner(room_row, username)
     is_moderator = can_moderate_room(room_row, username)
@@ -664,6 +801,7 @@ def room(room_id):
         is_moderator=is_moderator,
         moderators=list_room_moderators(room_id) if is_owner else [],
         bans=list_room_bans(room_id) if is_moderator else [],
+        can_change_history=can_change_history_setting(room_row, username),
         settings_error=request.args.get("settings_error"),
         settings_success=request.args.get("settings_success"),
         open_settings=request.args.get("open_settings"),
@@ -834,6 +972,33 @@ def room_settings(room_id):
     db.commit()
 
     return redirect(url_for("room", room_id=room_id, settings_success="Room settings updated.", open_settings=1))
+
+
+@app.route("/r/<int:room_id>/history-setting", methods=["POST"])
+@login_required
+def room_history_setting(room_id):
+    """Toggle persisted (encrypted) message history for a room or DM.
+    Regular rooms: owner/moderators only. DMs: either participant."""
+    room_row = _room_or_404(room_id)
+    username = session["username"]
+
+    if not can_access_room(room_row, username):
+        abort(403)
+    if not can_change_history_setting(room_row, username):
+        abort(403)
+
+    enabled = request.form.get("history_enabled") == "1"
+    db = get_db()
+    db.execute("UPDATE rooms SET history_enabled = ? WHERE id = ?", (1 if enabled else 0, room_id))
+    db.commit()
+
+    if not enabled:
+        # Turning it off also wipes what's already stored — this is a
+        # privacy control, not just a "pause" switch.
+        clear_persisted_history(room_id)
+
+    message = "Message history storage enabled." if enabled else "Message history storage disabled and cleared."
+    return redirect(url_for("room", room_id=room_id, settings_success=message, open_settings=1))
 
 
 @app.route("/r/<int:room_id>/moderators/add", methods=["POST"])
@@ -1071,9 +1236,13 @@ def api_room_detail(room_id):
     room_row = get_room(room_id)
     if room_row is None:
         return json_error("Room not found.", 404)
+    if room_row["history_enabled"]:
+        history = load_persisted_history(room_id, limit=MAX_HISTORY)
+    else:
+        history = message_history.get(room_id, [])
     return {
         "room": serialize_room(with_online_count(room_row)),
-        "history": message_history.get(room_id, []),
+        "history": history,
         "online": online_users_with_avatars(room_id),
     }
 
@@ -1358,10 +1527,17 @@ def handle_message(data):
     if not room_id or not username or (not text and not image_url):
         return
     room_id = int(room_id)
-    entry = add_message(room_id, username, text, image_url=image_url)
+    room_row = get_room(room_id)
+    if room_row is None:
+        return
+    entry = add_message(
+        room_id, username, text, image_url=image_url,
+        history_enabled=bool(room_row["history_enabled"]),
+    )
     emit("message", entry, room=str(room_id))
 
 
 if __name__ == "__main__":
     init_db()
+    init_messages_db()
     socketio.run(app, host="0.0.0.0", port=5000, debug=False, allow_unsafe_werkzeug=True)
