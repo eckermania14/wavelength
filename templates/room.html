@@ -439,8 +439,8 @@
           </div>
           <div class="header-actions">
             <span class="on-air"><span class="pulse"></span><span id="online-count">{{ online|length }}</span> on air</span>
-            {% if is_owner or is_moderator %}
-              <button class="settings-btn" id="open-room-settings" title="Room settings">⚙️</button>
+            {% if is_owner or is_moderator or is_dm %}
+              <button class="settings-btn" id="open-room-settings" title="{% if is_dm %}Conversation settings{% else %}Room settings{% endif %}">⚙️</button>
             {% endif %}
             <button class="icon-btn sidebar-toggle-btn" id="sidebar-toggle" title="Channels">☰</button>
             <button class="icon-btn roster-toggle" id="roster-toggle">👥</button>
@@ -525,12 +525,12 @@
     <div id="debug-log" style="font-family: monospace; line-height: 1.4; max-height: 350px; overflow-y: auto;"></div>
   </div>
 
-  {% if is_owner or is_moderator %}
-  <!-- Room Settings Modal -->
+  {% if is_owner or is_moderator or is_dm %}
+  <!-- Room / Conversation Settings Modal -->
   <div class="modal-backdrop" id="room-settings-backdrop">
     <div class="modal-card">
       <button type="button" class="modal-close-x" id="close-room-settings">✕</button>
-      <h2>Room settings — #{{ room.name }}</h2>
+      <h2>{% if is_dm %}Conversation settings — @{{ dm_partner }}{% else %}Room settings — #{{ room.name }}{% endif %}</h2>
 
       {% if settings_error %}<div class="settings-banner error">{{ settings_error }}</div>{% endif %}
       {% if settings_success %}<div class="settings-banner success">{{ settings_success }}</div>{% endif %}
@@ -540,7 +540,10 @@
           <button type="button" class="modal-tab-btn active" data-tab="general">General</button>
           <button type="button" class="modal-tab-btn" data-tab="moderators">Moderators</button>
         {% endif %}
-        <button type="button" class="modal-tab-btn {% if not is_owner %}active{% endif %}" data-tab="bans">Bans</button>
+        {% if not is_dm %}
+          <button type="button" class="modal-tab-btn {% if not is_owner %}active{% endif %}" data-tab="bans">Bans</button>
+        {% endif %}
+        <button type="button" class="modal-tab-btn {% if is_dm %}active{% endif %}" data-tab="history">History</button>
       </div>
 
       {% if is_owner %}
@@ -599,6 +602,7 @@
       </div>
       {% endif %}
 
+      {% if not is_dm %}
       <div class="modal-tab-panel {% if not is_owner %}active{% endif %}" data-tab-panel="bans">
         <ul class="person-list">
           {% for b in bans %}
@@ -617,6 +621,40 @@
           <input type="text" name="username" placeholder="Username to ban" required>
           <button type="submit" class="danger-btn">Ban</button>
         </form>
+      </div>
+      {% endif %}
+
+      <div class="modal-tab-panel {% if is_dm %}active{% endif %}" data-tab-panel="history">
+        <p class="person-meta" style="margin-bottom:12px; line-height:1.5;">
+          {% if is_dm %}
+            When enabled, messages in this conversation are saved to encrypted storage so they're
+            still here the next time either of you opens it. Either person can turn this on or off;
+            turning it off also permanently deletes what's already been saved.
+          {% else %}
+            When enabled, messages in this room are saved to encrypted storage instead of only
+            living in memory, so they survive restarts. Only the owner and moderators can change
+            this; turning it off also permanently deletes what's already been saved.
+          {% endif %}
+        </p>
+        {% if can_change_history %}
+          <form method="POST" action="{{ url_for('room_history_setting', room_id=room.id) }}">
+            <label class="checkbox-row">
+              <input
+                type="checkbox"
+                name="history_enabled"
+                value="1"
+                {% if room.history_enabled %}checked{% endif %}
+                onchange="this.form.submit()"
+              >
+              Store message history (encrypted)
+            </label>
+          </form>
+        {% else %}
+          <p class="person-meta">
+            History storage is currently <strong>{% if room.history_enabled %}on{% else %}off{% endif %}</strong>.
+            Only the room owner or a moderator can change this.
+          </p>
+        {% endif %}
       </div>
     </div>
   </div>
