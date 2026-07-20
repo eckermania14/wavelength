@@ -6,3 +6,4 @@ Pillow
 eventlet
 gevent
 gevent-websocket
+cryptography
