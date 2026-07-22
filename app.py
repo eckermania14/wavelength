@@ -675,6 +675,12 @@ def add_message(room_id, username, text, image_url=None, history_enabled=False):
 
 
 # ====================== ROUTES ======================
+from flask import send_from_directory
+import os
+
+@app.route('/ads.txt')
+def ads_txt():
+    return send_from_directory(os.path.dirname(__file__), 'ads.txt')
 
 @app.route("/register", methods=["GET", "POST"])
 def register():
