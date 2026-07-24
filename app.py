@@ -3,6 +3,8 @@ import secrets
 import json
 import os
 import uuid
+import urllib.request
+import urllib.parse
 from datetime import datetime
 from functools import wraps
 
@@ -67,6 +69,14 @@ MAX_AVATAR_DIMENSION = 512
 MAX_ROOM_BG_DIMENSION = 1920
 BIO_MAX_LEN = 280
 
+# ==================== GIF picker (GIPHY) ====================
+# "dc6zaTOxFJmzC" is GIPHY's published public beta key (rate-limited, shared
+# by everyone using it, and watermarked as "beta" traffic). For production,
+# get a free key at https://developers.giphy.com/dashboard/ and set it as
+# the GIPHY_API_KEY environment variable.
+GIPHY_API_KEY = os.environ.get("GIPHY_API_KEY", "dc6zaTOxFJmzC")
+MAX_FAVORITE_GIFS = 200
+
 
 def load_users():
     if os.path.exists(USERS_JSON):
@@ -118,7 +128,41 @@ def update_user_bio(username, bio):
     save_users(users_db)
 
 
+def get_user_favorite_gifs(username):
+    user = get_user_by_username(username)
+    return (user or {}).get("favorite_gifs", []) or []
+
+
+def add_user_favorite_gif(username, gif):
+    user = users_db.setdefault(username, {})
+    favorites = [g for g in user.get("favorite_gifs", []) if g.get("id") != gif.get("id")]
+    favorites.insert(0, gif)
+    user["favorite_gifs"] = favorites[:MAX_FAVORITE_GIFS]
+    save_users(users_db)
+
+
+def remove_user_favorite_gif(username, gif_id):
+    user = users_db.setdefault(username, {})
+    user["favorite_gifs"] = [g for g in user.get("favorite_gifs", []) if g.get("id") != gif_id]
+    save_users(users_db)
+
+
 # ==================== Image upload helpers ====================
+
+def is_allowed_gif_url(url):
+    """Only allow https URLs hosted on giphy.com (its CDN subdomains included).
+    This keeps the chat's image_url field from being used to embed or probe
+    arbitrary third-party URLs while still letting GIF-picker results through.
+    """
+    if not url:
+        return False
+    try:
+        parsed = urllib.parse.urlparse(url)
+    except ValueError:
+        return False
+    host = (parsed.hostname or "").lower()
+    return parsed.scheme == "https" and (host == "giphy.com" or host.endswith(".giphy.com"))
+
 
 def allowed_image(filename):
     return "." in filename and filename.rsplit(".", 1)[1].lower() in ALLOWED_IMAGE_EXTENSIONS
@@ -1166,6 +1210,112 @@ def too_large(e):
     return "File is too large.", 413
 
 
+# ==================== GIF picker (search / trending / favorites) ====================
+
+def _giphy_request(endpoint, params):
+    """Call GIPHY's v1 API server-side and reshape the response into the
+    small shape the GIF picker UI needs. Keeps the API key off the client
+    and lets us whitelist media URLs consistently.
+    """
+    query = urllib.parse.urlencode(params)
+    url = f"https://api.giphy.com/v1/gifs/{endpoint}?{query}"
+    try:
+        with urllib.request.urlopen(url, timeout=6) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+    except Exception:
+        return {"results": [], "next": "", "error": "GIF search is unavailable right now."}, 502
+
+    results = []
+    for item in data.get("data", []):
+        images = item.get("images", {})
+        full = images.get("fixed_height") or images.get("original") or {}
+        preview = images.get("fixed_height_small") or images.get("fixed_width_small") or full
+        if not full.get("url"):
+            continue
+        results.append({
+            "id": item.get("id"),
+            "title": (item.get("title") or "")[:200],
+            "url": full["url"],
+            "preview_url": preview.get("url", full["url"]),
+        })
+
+    pagination = data.get("pagination", {})
+    offset = pagination.get("offset", 0)
+    total = pagination.get("total_count", 0)
+    count = pagination.get("count", 0)
+    next_offset = str(offset + count) if (offset + count) < total else ""
+    return {"results": results, "next": next_offset}
+
+
+@app.route("/api/gifs/search")
+@api_login_required
+def api_gif_search():
+    query = (request.args.get("q") or "").strip()[:100]
+    if not query:
+        return api_gif_trending()
+    params = {
+        "q": query,
+        "api_key": GIPHY_API_KEY,
+        "limit": "24",
+        "rating": "pg-13",
+        "lang": "en",
+    }
+    offset = request.args.get("pos", "")
+    if offset:
+        params["offset"] = offset
+    return _giphy_request("search", params)
+
+
+@app.route("/api/gifs/trending")
+@api_login_required
+def api_gif_trending():
+    params = {
+        "api_key": GIPHY_API_KEY,
+        "limit": "24",
+        "rating": "pg-13",
+    }
+    offset = request.args.get("pos", "")
+    if offset:
+        params["offset"] = offset
+    return _giphy_request("trending", params)
+
+
+@app.route("/api/gifs/favorites")
+@api_login_required
+def api_gif_favorites():
+    return {"results": get_user_favorite_gifs(session["username"])}
+
+
+@app.route("/api/gifs/favorites", methods=["POST"])
+@api_login_required
+def api_gif_favorite_add():
+    username = session["username"]
+    data = request.get_json(silent=True) or {}
+    gif_id = str(data.get("id") or "").strip()
+    gif_url = data.get("url") or ""
+    preview_url = data.get("preview_url") or gif_url
+    title = (data.get("title") or "")[:200]
+
+    if not gif_id or not is_allowed_gif_url(gif_url) or not is_allowed_gif_url(preview_url):
+        return json_error("Invalid GIF.")
+
+    add_user_favorite_gif(username, {
+        "id": gif_id,
+        "url": gif_url,
+        "preview_url": preview_url,
+        "title": title,
+    })
+    return {"results": get_user_favorite_gifs(username)}
+
+
+@app.route("/api/gifs/favorites/<gif_id>", methods=["DELETE"])
+@api_login_required
+def api_gif_favorite_remove(gif_id):
+    username = session["username"]
+    remove_user_favorite_gif(username, gif_id)
+    return {"results": get_user_favorite_gifs(username)}
+
+
 # ==================== JSON API (for the desktop client) ====================
 # These sit alongside the existing server-rendered pages and change nothing
 # about the web UI. They exist because the desktop client can't parse
@@ -1525,9 +1675,13 @@ def handle_message(data):
     text = (data.get("message") or "").strip()[:1000]
     image_url = data.get("image_url")
 
-    # Only accept image URLs that point at our own chat-upload directory —
-    # never trust an arbitrary client-supplied URL.
-    if image_url and not image_url.startswith(url_for("static", filename="uploads/chat/")):
+    # Only accept image URLs that point at our own chat-upload directory, or
+    # at GIPHY's GIF CDN (used by the GIF picker) — never trust an arbitrary
+    # client-supplied URL.
+    if image_url and not (
+        image_url.startswith(url_for("static", filename="uploads/chat/"))
+        or is_allowed_gif_url(image_url)
+    ):
         image_url = None
 
     if not room_id or not username or (not text and not image_url):

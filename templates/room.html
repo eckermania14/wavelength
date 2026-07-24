@@ -12,6 +12,7 @@
 <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
 <style>
   .chat-wrap {
+    position: relative;
     height: 100%;
     display: flex;
     flex-direction: column;
@@ -109,6 +110,140 @@
     line-height: 1;
   }
   .attach-btn:disabled { opacity: 0.5; cursor: default; }
+  .message-form { position: relative; }
+  .gif-btn {
+    font-family: var(--font-display, "Space Grotesk", sans-serif);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    border: 1px solid var(--panel-line, #323647);
+    border-radius: 6px;
+    padding: 4px 7px;
+    color: var(--text-muted, #9195a4);
+  }
+  .gif-btn:hover, .gif-btn.active { color: var(--amber, #f2a65a); border-color: var(--amber, #f2a65a); }
+
+  /* GIF picker popup */
+  .gif-picker {
+    display: none;
+    flex-direction: column;
+    position: absolute;
+    left: 12px;
+    right: 12px;
+    bottom: calc(100% + 8px);
+    max-width: 360px;
+    height: 380px;
+    background: var(--panel-raised, #1e212b);
+    border: 1px solid var(--panel-line, #323647);
+    border-radius: 14px;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.35);
+    overflow: hidden;
+    z-index: 60;
+  }
+  .gif-picker.open { display: flex; }
+  .gif-picker-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px;
+    border-bottom: 1px solid var(--panel-line, #323647);
+  }
+  .gif-search-input {
+    flex: 1;
+    background: #171922;
+    border: 1px solid var(--panel-line, #2a2d38);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: var(--text, #f2f0ea);
+    font-family: inherit;
+    font-size: 13px;
+    box-sizing: border-box;
+  }
+  .gif-search-input:focus { outline: none; border-color: var(--amber, #f2a65a); }
+  .gif-picker-close {
+    background: none;
+    border: none;
+    color: var(--text-faint, #5c6072);
+    font-size: 15px;
+    cursor: pointer;
+    padding: 4px 6px;
+  }
+  .gif-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 8px 10px 0;
+  }
+  .gif-tab-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted, #9195a4);
+    font-size: 12px;
+    font-weight: 600;
+    padding: 6px 10px;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .gif-tab-btn.active {
+    color: var(--amber, #f2a65a);
+    border-bottom-color: var(--amber, #f2a65a);
+  }
+  .gif-grid {
+    flex: 1;
+    overflow-y: auto;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    padding: 10px;
+    align-content: start;
+  }
+  .gif-thumb {
+    position: relative;
+    border-radius: 8px;
+    overflow: hidden;
+    cursor: pointer;
+    background: #171922;
+    border: none;
+    padding: 0;
+    aspect-ratio: 1 / 1;
+  }
+  .gif-thumb img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+  }
+  .gif-thumb .gif-fav-toggle {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: rgba(20, 22, 28, 0.65);
+    border: none;
+    color: var(--text-muted, #9195a4);
+    font-size: 13px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .gif-thumb .gif-fav-toggle.faved { color: var(--amber, #f2a65a); }
+  .gif-picker-status {
+    grid-column: 1 / -1;
+    color: var(--text-faint, #5c6072);
+    font-size: 12px;
+    text-align: center;
+    padding: 20px 8px;
+  }
+  .gif-picker-footer {
+    padding: 6px 10px;
+    font-size: 10px;
+    color: var(--text-faint, #5c6072);
+    text-align: right;
+    border-top: 1px solid var(--panel-line, #323647);
+  }
   .roster-avatar {
     width: 18px;
     height: 18px;
@@ -508,7 +643,21 @@
         
         <!-- Message Form -->
         <form id="message-form" class="message-form">
+          <!-- GIF Picker -->
+          <div class="gif-picker" id="gif-picker">
+            <div class="gif-picker-header">
+              <input type="text" id="gif-search-input" class="gif-search-input" placeholder="Search GIPHY" autocomplete="off">
+              <button type="button" id="gif-picker-close" class="gif-picker-close" title="Close">✕</button>
+            </div>
+            <div class="gif-tabs">
+              <button type="button" class="gif-tab-btn active" data-gif-tab="trending">Trending</button>
+              <button type="button" class="gif-tab-btn" data-gif-tab="favorites">★ Favorites</button>
+            </div>
+            <div class="gif-grid" id="gif-grid"></div>
+            <div class="gif-picker-footer">Powered by GIPHY</div>
+          </div>
           <button type="button" id="attach-image-btn" class="attach-btn" title="Send an image">📷</button>
+          <button type="button" id="gif-picker-btn" class="attach-btn gif-btn" title="Send a GIF">GIF</button>
           <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;">
           <input type="text" id="message-input" maxlength="1000" placeholder="Say something..." autocomplete="off" autofocus>
           <span class="char-counter" id="char-counter">1000</span>
@@ -1033,6 +1182,198 @@
         attachBtn.textContent = originalLabel;
         imageInput.value = '';
       }
+    });
+
+    // ==================== GIF picker ====================
+
+    const gifPickerBtn = document.getElementById('gif-picker-btn');
+    const gifPicker = document.getElementById('gif-picker');
+    const gifPickerClose = document.getElementById('gif-picker-close');
+    const gifSearchInput = document.getElementById('gif-search-input');
+    const gifGrid = document.getElementById('gif-grid');
+    const gifTabBtns = document.querySelectorAll('.gif-tab-btn');
+
+    let gifActiveTab = 'trending';
+    let gifFavoriteIds = new Set();
+    let gifSearchTimer = null;
+    let gifRequestSeq = 0; // guards against out-of-order responses clobbering the grid
+
+    function setGifStatus(text) {
+      gifGrid.innerHTML = `<div class="gif-picker-status">${text}</div>`;
+    }
+
+    async function refreshFavoriteIds() {
+      try {
+        const res = await fetch('/api/gifs/favorites');
+        const data = await res.json();
+        gifFavoriteIds = new Set((data.results || []).map(g => g.id));
+      } catch (err) {
+        gifFavoriteIds = new Set();
+      }
+    }
+
+    function renderGifResults(results) {
+      gifGrid.innerHTML = '';
+      if (!results || results.length === 0) {
+        setGifStatus('No GIFs found.');
+        return;
+      }
+      results.forEach(gif => {
+        const thumb = document.createElement('button');
+        thumb.type = 'button';
+        thumb.className = 'gif-thumb';
+        thumb.title = gif.title || 'GIF';
+
+        const img = document.createElement('img');
+        img.src = gif.preview_url;
+        img.alt = gif.title || 'GIF';
+        img.loading = 'lazy';
+        thumb.appendChild(img);
+
+        const favBtn = document.createElement('button');
+        favBtn.type = 'button';
+        favBtn.className = 'gif-fav-toggle' + (gifFavoriteIds.has(gif.id) ? ' faved' : '');
+        favBtn.textContent = '★';
+        favBtn.title = gifFavoriteIds.has(gif.id) ? 'Remove from favorites' : 'Add to favorites';
+        favBtn.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const isFaved = gifFavoriteIds.has(gif.id);
+          try {
+            if (isFaved) {
+              await fetch('/api/gifs/favorites/' + encodeURIComponent(gif.id), { method: 'DELETE' });
+              gifFavoriteIds.delete(gif.id);
+              favBtn.classList.remove('faved');
+              favBtn.title = 'Add to favorites';
+              if (gifActiveTab === 'favorites') thumb.remove();
+            } else {
+              await fetch('/api/gifs/favorites', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(gif),
+              });
+              gifFavoriteIds.add(gif.id);
+              favBtn.classList.add('faved');
+              favBtn.title = 'Remove from favorites';
+            }
+          } catch (err) {
+            // Best-effort; the star just won't update if the request failed.
+          }
+        });
+        thumb.appendChild(favBtn);
+
+        thumb.addEventListener('click', () => {
+          socket.emit('message', { room_id: roomId, message: '', image_url: gif.url });
+          closeGifPicker();
+        });
+
+        gifGrid.appendChild(thumb);
+      });
+    }
+
+    async function loadTrending() {
+      const seq = ++gifRequestSeq;
+      setGifStatus('Loading trending GIFs…');
+      try {
+        const res = await fetch('/api/gifs/trending');
+        const data = await res.json();
+        if (seq !== gifRequestSeq) return;
+        renderGifResults(data.results);
+      } catch (err) {
+        if (seq === gifRequestSeq) setGifStatus('Could not load GIFs.');
+      }
+    }
+
+    async function loadSearch(query) {
+      const seq = ++gifRequestSeq;
+      setGifStatus('Searching…');
+      try {
+        const res = await fetch('/api/gifs/search?q=' + encodeURIComponent(query));
+        const data = await res.json();
+        if (seq !== gifRequestSeq) return;
+        renderGifResults(data.results);
+      } catch (err) {
+        if (seq === gifRequestSeq) setGifStatus('Could not load GIFs.');
+      }
+    }
+
+    async function loadFavorites() {
+      const seq = ++gifRequestSeq;
+      setGifStatus('Loading favorites…');
+      try {
+        const res = await fetch('/api/gifs/favorites');
+        const data = await res.json();
+        if (seq !== gifRequestSeq) return;
+        gifFavoriteIds = new Set((data.results || []).map(g => g.id));
+        if (!data.results || data.results.length === 0) {
+          setGifStatus("No favorites yet — star a GIF to save it here.");
+          return;
+        }
+        renderGifResults(data.results);
+      } catch (err) {
+        if (seq === gifRequestSeq) setGifStatus('Could not load favorites.');
+      }
+    }
+
+    function loadActiveTab() {
+      const query = gifSearchInput.value.trim();
+      if (gifActiveTab === 'favorites') {
+        loadFavorites();
+      } else if (query) {
+        loadSearch(query);
+      } else {
+        loadTrending();
+      }
+    }
+
+    function openGifPicker() {
+      gifPicker.classList.add('open');
+      gifPickerBtn.classList.add('active');
+      refreshFavoriteIds().then(loadActiveTab);
+      setTimeout(() => gifSearchInput.focus(), 0);
+    }
+
+    function closeGifPicker() {
+      gifPicker.classList.remove('open');
+      gifPickerBtn.classList.remove('active');
+    }
+
+    gifPickerBtn.addEventListener('click', () => {
+      if (gifPicker.classList.contains('open')) {
+        closeGifPicker();
+      } else {
+        openGifPicker();
+      }
+    });
+
+    gifPickerClose.addEventListener('click', closeGifPicker);
+
+    document.addEventListener('click', (e) => {
+      if (!gifPicker.classList.contains('open')) return;
+      if (gifPicker.contains(e.target) || e.target === gifPickerBtn) return;
+      closeGifPicker();
+    });
+
+    gifTabBtns.forEach(btn => {
+      btn.addEventListener('click', () => {
+        gifTabBtns.forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        gifActiveTab = btn.dataset.gifTab;
+        if (gifActiveTab === 'trending') gifSearchInput.value = '';
+        loadActiveTab();
+      });
+    });
+
+    gifSearchInput.addEventListener('input', () => {
+      if (gifActiveTab === 'favorites') return;
+      clearTimeout(gifSearchTimer);
+      gifSearchTimer = setTimeout(() => {
+        const query = gifSearchInput.value.trim();
+        if (query) {
+          loadSearch(query);
+        } else {
+          loadTrending();
+        }
+      }, 350);
     });
 
     // Socket Events
