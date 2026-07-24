@@ -110,7 +110,7 @@
     line-height: 1;
   }
   .attach-btn:disabled { opacity: 0.5; cursor: default; }
-  .message-form { position: relative; }
+  .composer-wrap { position: relative; }
   .gif-btn {
     font-family: var(--font-display, "Space Grotesk", sans-serif);
     font-size: 11px;
@@ -198,6 +198,9 @@
   }
   .gif-thumb {
     position: relative;
+    display: block;
+    width: 100%;
+    box-sizing: border-box;
     border-radius: 8px;
     overflow: hidden;
     cursor: pointer;
@@ -642,7 +645,7 @@
         <div class="typing-indicator" id="typing-indicator"></div>
         
         <!-- Message Form -->
-        <form id="message-form" class="message-form">
+        <div class="composer-wrap">
           <!-- GIF Picker -->
           <div class="gif-picker" id="gif-picker">
             <div class="gif-picker-header">
@@ -656,13 +659,15 @@
             <div class="gif-grid" id="gif-grid"></div>
             <div class="gif-picker-footer">Powered by GIPHY</div>
           </div>
-          <button type="button" id="attach-image-btn" class="attach-btn" title="Send an image">📷</button>
-          <button type="button" id="gif-picker-btn" class="attach-btn gif-btn" title="Send a GIF">GIF</button>
-          <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;">
-          <input type="text" id="message-input" maxlength="1000" placeholder="Say something..." autocomplete="off" autofocus>
-          <span class="char-counter" id="char-counter">1000</span>
-          <button type="submit">Send</button>
-        </form>
+          <form id="message-form" class="message-form">
+            <button type="button" id="attach-image-btn" class="attach-btn" title="Send an image">📷</button>
+            <button type="button" id="gif-picker-btn" class="attach-btn gif-btn" title="Send a GIF">GIF</button>
+            <input type="file" id="image-input" accept="image/png,image/jpeg,image/gif,image/webp" style="display:none;">
+            <input type="text" id="message-input" maxlength="1000" placeholder="Say something..." autocomplete="off" autofocus>
+            <span class="char-counter" id="char-counter">1000</span>
+            <button type="submit">Send</button>
+          </form>
+        </div>
       </div>
     </main>
   </div>
