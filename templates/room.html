@@ -200,16 +200,21 @@
     position: relative;
     display: block;
     width: 100%;
+    height: 0;
+    padding-top: 100%; /* forces a square box based on width alone; works in every browser, unlike the aspect-ratio property */
     box-sizing: border-box;
     border-radius: 8px;
     overflow: hidden;
     cursor: pointer;
     background: #171922;
     border: none;
-    padding: 0;
-    aspect-ratio: 1 / 1;
   }
   .gif-thumb img {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
     width: 100%;
     height: 100%;
     object-fit: cover;
